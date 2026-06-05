@@ -59,6 +59,18 @@ This creates:
 
 ## 4. Run One Manual Worker Pass
 
+If you want to preserve old local MVP data, import SQLite first:
+
+```bash
+python scripts/import_sqlite_to_postgres.py --dry-run
+python scripts/import_sqlite_to_postgres.py
+```
+
+The import script reads `data/vc_blogs.sqlite3`, runs Postgres migrations, and
+uses unique keys to skip duplicate article URLs and duplicate weekly insights.
+
+Then run one worker pass:
+
 ```bash
 python scripts/worker.py
 ```

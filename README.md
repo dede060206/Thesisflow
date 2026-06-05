@@ -29,6 +29,13 @@ Run migrations:
 python scripts/migrate.py
 ```
 
+Import the old local SQLite data into Postgres after `DATABASE_URL` is set:
+
+```bash
+python scripts/import_sqlite_to_postgres.py --dry-run
+python scripts/import_sqlite_to_postgres.py
+```
+
 Run the web app:
 
 ```bash
