@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="page-head">
+  <p class="eyebrow">Daily brief</p>
+  <h1>今日新增文章</h1>
+  <p>这里显示今天抓取入库的文章和摘要。</p>
+</section>
+
+<section class="article-list">
+  {% for article in articles %}
+    <article class="article-card">
+      <div class="card-top">
+        <span class="source-pill">{{ article.source }}</span>
+        <a class="category-pill" href="/category/{{ (article.category or 'Market Analysis') | replace(' ', '%20') }}">{{ article.category or "Market Analysis" }}</a>
+      </div>
+      <p class="meta">{{ article.fetched_at }} · {{ article.word_count or 0 }} words{% if article.is_long_form %} · Long-form{% endif %}</p>
+      <h2><a href="/article/{{ article.id }}">{{ article.title }}</a></h2>
+      <div class="summary compact">{{ article.summary | summary_html | safe }}</div>
+      <div class="card-actions">
+        <a class="source-link" href="/article/{{ article.id }}">查看摘要</a>
+        <a class="ghost-link" href="{{ article.url }}" target="_blank" rel="noreferrer">原文</a>
+      </div>
+    </article>
+  {% else %}
+    <p class="empty">今天还没有更新。运行 <code>python scripts/update_articles.py</code> 后再刷新。</p>
+  {% endfor %}
+</section>
+{% endblock %}

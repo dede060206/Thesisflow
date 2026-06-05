@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{{ title or "Thesisflow" }}</title>
+    <link rel="stylesheet" href="/static/style.css">
+  </head>
+  <body>
+    <header class="topbar">
+      <a class="brand" href="/">
+        <span class="brand-mark">TF</span>
+        <span>Thesisflow</span>
+      </a>
+      <nav>
+        <a href="/">全部文章</a>
+        <a href="/daily">每日更新</a>
+        <a href="/api/articles">API</a>
+      </nav>
+    </header>
+    <main class="container">
+      {% block content %}{% endblock %}
+    </main>
+  </body>
+</html>

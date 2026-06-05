@@ -1,0 +1,10 @@
+fastapi
+uvicorn[standard]
+jinja2
+feedparser
+httpx
+beautifulsoup4
+python-dotenv
+openai
+psycopg[binary]
+pytest

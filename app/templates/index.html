@@ -1,0 +1,97 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="page-head">
+  <p class="eyebrow">VC intelligence, updated daily</p>
+  <h1>在资本的长文里，读懂技术与市场的暗流。</h1>
+  <p>聚合 a16z、Sequoia、Benchmark、Lightspeed、YC、NFX、Redpoint 和 Bessemer 的最新观点。</p>
+</section>
+
+<form class="search-bar" action="/search" method="get">
+  <input type="search" name="q" value="{{ query or '' }}" placeholder="搜索文章名称、关键词、来源或分类">
+  <button type="submit">Search</button>
+</form>
+
+<nav class="category-nav" aria-label="Article categories">
+  {% for category in categories %}
+    <a href="/category/{{ category | replace(' ', '%20') }}">{{ category }}</a>
+  {% endfor %}
+</nav>
+
+{% if database_unavailable %}
+  <p class="empty">本地预览模式：尚未配置 <code>DATABASE_URL</code>，页面结构可检查，文章数据连接 Postgres 后显示。</p>
+{% endif %}
+
+{% if is_search %}
+  <section class="section-head">
+    <p class="eyebrow">Search results</p>
+    <h2>“{{ query }}” 的相关文章</h2>
+  </section>
+{% elif is_category %}
+  <section class="section-head">
+    <p class="eyebrow">Category</p>
+    <h2>{{ selected_category }}</h2>
+  </section>
+{% else %}
+  <section class="section-head">
+    <p class="eyebrow">Top 5 Must Reads Today</p>
+    <h2>今日最值得读的 5 篇</h2>
+  </section>
+  <section class="top-list">
+    {% for article in top_articles %}
+      <article class="top-card">
+        <div class="card-top">
+          <span class="source-pill">{{ article.source }}</span>
+          <a class="category-pill" href="/category/{{ (article.category or 'Market Analysis') | replace(' ', '%20') }}">{{ article.category or "Market Analysis" }}</a>
+        </div>
+        <h3><a href="/article/{{ article.id }}">{{ article.title }}</a></h3>
+        <p class="meta">{{ article.word_count or 0 }} words{% if article.is_long_form %} · Long-form{% endif %}</p>
+      </article>
+    {% else %}
+      <p class="empty">今天还没有 Top Reads。运行 <code>python scripts/update_articles.py</code> 后再刷新。</p>
+    {% endfor %}
+  </section>
+
+  <section class="section-head">
+    <p class="eyebrow">Weekly category trends</p>
+    <h2>本周分类趋势洞察</h2>
+  </section>
+  <section class="insight-grid">
+    {% for insight in weekly_insights %}
+      <article class="insight-card">
+        <a class="category-pill" href="/insight/{{ insight.id }}">{{ insight.category }}</a>
+        <a class="insight-link" href="/insight/{{ insight.id }}">
+          <div class="summary compact">{{ insight.insight | summary_html | safe }}</div>
+          <span>阅读全文</span>
+        </a>
+      </article>
+    {% else %}
+      <p class="empty">本周趋势洞察尚未生成。</p>
+    {% endfor %}
+  </section>
+
+  <section class="section-head">
+    <p class="eyebrow">All briefs</p>
+    <h2>最新文章</h2>
+  </section>
+{% endif %}
+
+<section class="article-list">
+  {% for article in articles %}
+    <article class="article-card">
+      <div class="card-top">
+        <span class="source-pill">{{ article.source }}</span>
+        <a class="category-pill" href="/category/{{ (article.category or 'Market Analysis') | replace(' ', '%20') }}">{{ article.category or "Market Analysis" }}</a>
+      </div>
+      <p class="meta">{{ article.published_at or article.fetched_at }} · {{ article.word_count or 0 }} words{% if article.is_long_form %} · Long-form{% endif %}</p>
+      <h2><a href="/article/{{ article.id }}">{{ article.title }}</a></h2>
+      <div class="summary compact">{{ article.summary | summary_html | safe }}</div>
+      <div class="card-actions">
+        <a class="source-link" href="/article/{{ article.id }}">查看摘要</a>
+        <a class="ghost-link" href="{{ article.url }}" target="_blank" rel="noreferrer">原文</a>
+      </div>
+    </article>
+  {% else %}
+    <p class="empty">暂无文章。请先运行 <code>python scripts/update_articles.py</code>。</p>
+  {% endfor %}
+</section>
+{% endblock %}

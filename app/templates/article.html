@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block content %}
+{% if article %}
+  <article class="detail">
+    <div class="card-top">
+      <span class="source-pill">{{ article.source }}</span>
+      <a class="category-pill" href="/category/{{ (article.category or 'Market Analysis') | replace(' ', '%20') }}">{{ article.category or "Market Analysis" }}</a>
+    </div>
+    <p class="meta">{{ article.published_at or article.fetched_at }} · {{ article.word_count or 0 }} words{% if article.is_long_form %} · Long-form{% endif %}</p>
+    <h1>{{ article.title }}</h1>
+    <a class="source-link" href="{{ article.url }}" target="_blank" rel="noreferrer">阅读原文</a>
+
+    <h2>摘要</h2>
+    <div class="summary-block">{{ article.summary | summary_without_section("Important Quotes") | summary_html | safe }}</div>
+
+    <h2>原文引用</h2>
+    <div class="quote-block">
+      {% set quotes = article.summary | summary_section("Important Quotes") %}
+      {{ quotes | summary_html | safe if quotes else "<p>当前摘要中暂无可核验的重要引用。请对旧文章执行强制重摘要。</p>" | safe }}
+    </div>
+  </article>
+{% else %}
+  <p class="empty">文章不存在。</p>
+{% endif %}
+{% endblock %}
