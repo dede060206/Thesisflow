@@ -13,12 +13,12 @@ jobs:
       APP_NAME: Thesisflow
       DATABASE_URL: ${{ secrets.DATABASE_URL }}
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-      OPENAI_MODEL: ${{ vars.OPENAI_MODEL || 'gpt-4.1-mini' }}
-      DAILY_ARTICLE_LIMIT: ${{ vars.DAILY_ARTICLE_LIMIT || '20' }}
-      LONG_FORM_WORD_THRESHOLD: ${{ vars.LONG_FORM_WORD_THRESHOLD || '1000' }}
-      MIN_ARTICLE_DATE: ${{ vars.MIN_ARTICLE_DATE || '2025-06-01' }}
-      MAX_ARTICLE_AGE_DAYS: ${{ vars.MAX_ARTICLE_AGE_DAYS || '15' }}
-      TOP_READS_MAX_AGE_DAYS: ${{ vars.TOP_READS_MAX_AGE_DAYS || '7' }}
+      OPENAI_MODEL: ${{ vars.OPENAI_MODEL }}
+      DAILY_ARTICLE_LIMIT: ${{ vars.DAILY_ARTICLE_LIMIT }}
+      LONG_FORM_WORD_THRESHOLD: ${{ vars.LONG_FORM_WORD_THRESHOLD }}
+      MIN_ARTICLE_DATE: ${{ vars.MIN_ARTICLE_DATE }}
+      MAX_ARTICLE_AGE_DAYS: ${{ vars.MAX_ARTICLE_AGE_DAYS }}
+      TOP_READS_MAX_AGE_DAYS: ${{ vars.TOP_READS_MAX_AGE_DAYS }}
     steps:
       - uses: actions/checkout@v4
 
