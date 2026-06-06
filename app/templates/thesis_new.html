@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="thesis-editor narrow">
+  <header class="chat-head">
+    <p class="eyebrow">New investment thesis</p>
+    <h1>从一个核心判断开始</h1>
+    <p>先写清楚你相信什么。创建后再添加证据、反方观点和关键问题。</p>
+  </header>
+
+  <form class="thesis-form" id="new-thesis-form">
+    <label for="thesis-title">Thesis 名称</label>
+    <input id="thesis-title" maxlength="200" placeholder="例如：AI Agent 将重构垂直 SaaS" required>
+    <label for="core-claim">核心判断</label>
+    <textarea id="core-claim" maxlength="3000" rows="7" placeholder="用一段话写明你的判断、时间范围和关键假设。" required></textarea>
+    <div class="chat-actions">
+      <span id="create-status">无需账户，保存在当前浏览器 workspace</span>
+      <button type="submit">创建 Thesis</button>
+    </div>
+  </form>
+</section>
+
+<script>
+  const form = document.getElementById("new-thesis-form");
+  const status = document.getElementById("create-status");
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const button = form.querySelector("button");
+    button.disabled = true;
+    status.textContent = "正在创建...";
+    try {
+      const response = await fetch("/api/theses", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({
+          title: document.getElementById("thesis-title").value.trim(),
+          core_claim: document.getElementById("core-claim").value.trim()
+        })
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.detail || "创建失败");
+      window.location.href = `/theses/${data.id}`;
+    } catch (error) {
+      status.textContent = error.message;
+      button.disabled = false;
+    }
+  });
+</script>
+{% endblock %}

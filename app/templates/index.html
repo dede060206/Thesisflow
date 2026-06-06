@@ -52,22 +52,21 @@
   </section>
 
   <section class="section-head">
-    <p class="eyebrow">Weekly category trends</p>
-    <h2>本周分类趋势洞察</h2>
+    <p class="eyebrow">Weekly market signals</p>
+    <h2>本周市场信号</h2>
   </section>
-  <section class="insight-grid">
-    {% for insight in weekly_insights %}
-      <article class="insight-card">
-        <a class="category-pill" href="/insight/{{ insight.id }}">{{ insight.category }}</a>
-        <a class="insight-link" href="/insight/{{ insight.id }}">
-          <div class="summary compact">{{ insight.insight | summary_html | safe }}</div>
-          <span>阅读全文</span>
-        </a>
-      </article>
-    {% else %}
-      <p class="empty">本周趋势洞察尚未生成。</p>
-    {% endfor %}
-  </section>
+  {% if weekly_report %}
+    <a class="weekly-preview" href="/weekly">
+      <div>
+        <span class="source-pill">{{ weekly_report.week_start }} - {{ weekly_report.week_end }}</span>
+        <h3>一份报告，读懂本周 VC 市场的重要变化</h3>
+        <p>覆盖 {{ weekly_report.article_count }} 篇文章和 {{ weekly_report.investor_count }} 家投资机构。</p>
+      </div>
+      <span class="weekly-preview-link">查看完整报告</span>
+    </a>
+  {% else %}
+    <p class="empty">本周综合市场报告尚未生成。</p>
+  {% endif %}
 
   <section class="section-head">
     <p class="eyebrow">All briefs</p>

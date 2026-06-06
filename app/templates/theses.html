@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="theses-shell">
+  <header class="workspace-header">
+    <div>
+      <p class="eyebrow">Investment research workspace</p>
+      <h1>投资论点</h1>
+      <p>把文章证据、机构观点和市场信号发展成可验证的投资判断。</p>
+    </div>
+    <a class="source-link" href="/theses/new">新建 Thesis</a>
+  </header>
+
+  <section class="thesis-list">
+    {% for thesis in theses %}
+      <a class="thesis-card" href="/theses/{{ thesis.id }}">
+        <div class="card-top">
+          <span class="source-pill">{{ thesis.status }}</span>
+          <span class="meta">{{ thesis.evidence_count }} 条证据</span>
+        </div>
+        <h2>{{ thesis.title }}</h2>
+        <p>{{ thesis.core_claim }}</p>
+        <small>更新于 {{ thesis.updated_at }}</small>
+      </a>
+    {% else %}
+      <div class="empty">
+        <p>还没有保存的投资论点。</p>
+        <a class="source-link" href="/theses/new">创建第一个 Thesis</a>
+      </div>
+    {% endfor %}
+  </section>
+</section>
+{% endblock %}

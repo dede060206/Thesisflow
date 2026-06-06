@@ -45,7 +45,7 @@ def test_homepage_renders_thesisflow() -> None:
     with (
         patch("app.main.list_articles", return_value=[ARTICLE]),
         patch("app.main.list_top_reads_today", return_value=[ARTICLE]),
-        patch("app.main.list_latest_weekly_insights", return_value=[INSIGHT]),
+        patch("app.main.get_latest_weekly_market_report", return_value=None),
     ):
         response = client.get("/")
 
@@ -65,7 +65,7 @@ def test_category_route_renders_articles() -> None:
     client = TestClient(app)
     with (
         patch("app.main.list_articles_by_category", return_value=[ARTICLE]),
-        patch("app.main.list_latest_weekly_insights", return_value=[]),
+        patch("app.main.get_latest_weekly_market_report", return_value=None),
     ):
         response = client.get("/category/AI")
 

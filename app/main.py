@@ -6,30 +6,45 @@ import re
 from collections.abc import Callable
 from typing import TypeVar
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from pydantic import BaseModel, Field
 
-from app.config import APP_NAME, CATEGORIES, DATABASE_URL
+from app.chat import answer_question
+from app.compare import compare_investors
+from app.config import APP_NAME, CATEGORIES, DATABASE_URL, INVESTORS
 from app.database import (
+    get_latest_weekly_market_report,
     get_weekly_insight_by_id,
     get_article,
     list_articles,
     list_articles_by_category,
     list_daily_articles,
-    list_latest_weekly_insights,
     list_top_reads_today,
     search_articles,
 )
+from app.thesis_routes import router as thesis_router
 
 
 app = FastAPI(title=APP_NAME)
+app.include_router(thesis_router)
 templates = Jinja2Templates(directory="app/templates")
 templates.env.cache = None
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
 logger = logging.getLogger(__name__)
 T = TypeVar("T")
+
+
+class ChatRequest(BaseModel):
+    question: str = Field(min_length=1, max_length=1500)
+    top_k: int = Field(default=6, ge=3, le=10)
+
+
+class CompareRequest(BaseModel):
+    topic: str = Field(min_length=1, max_length=500)
+    investors: list[str]
 
 
 SUMMARY_HEADING_LABELS = {
@@ -156,7 +171,7 @@ def home(request: Request) -> HTMLResponse:
         {
             "articles": db_or_default(list_articles, []),
             "top_articles": db_or_default(list_top_reads_today, []),
-            "weekly_insights": db_or_default(list_latest_weekly_insights, []),
+            "weekly_report": db_or_default(get_latest_weekly_market_report, None),
             "query": "",
             "categories": CATEGORIES,
             "database_unavailable": not bool(DATABASE_URL),
@@ -175,7 +190,7 @@ def search(request: Request, q: str = "") -> HTMLResponse:
         {
             "articles": articles,
             "top_articles": [],
-            "weekly_insights": db_or_default(list_latest_weekly_insights, []),
+            "weekly_report": db_or_default(get_latest_weekly_market_report, None),
             "query": q,
             "is_search": True,
             "categories": CATEGORIES,
@@ -195,7 +210,7 @@ def category_page(request: Request, category: str) -> HTMLResponse:
         {
             "articles": db_or_default(lambda: list_articles_by_category(selected), []),
             "top_articles": [],
-            "weekly_insights": db_or_default(list_latest_weekly_insights, []),
+            "weekly_report": db_or_default(get_latest_weekly_market_report, None),
             "query": "",
             "is_category": True,
             "selected_category": selected,
@@ -222,6 +237,83 @@ def daily(request: Request) -> HTMLResponse:
         "daily.html",
         {"articles": db_or_default(list_daily_articles, [])},
     )
+
+
+@app.get("/weekly", response_class=HTMLResponse)
+def weekly_dashboard(request: Request) -> HTMLResponse:
+    report = db_or_default(get_latest_weekly_market_report, None)
+    citation_article_ids = (
+        [item["article_id"] for item in report["citations"][:10]] if report else []
+    )
+    return templates.TemplateResponse(
+        request,
+        "weekly.html",
+        {
+            "weekly_report": report,
+            "weekly_citation_article_ids": citation_article_ids,
+        },
+        status_code=200,
+    )
+
+
+@app.get("/chat", response_class=HTMLResponse)
+def chat_page(request: Request) -> HTMLResponse:
+    return templates.TemplateResponse(request, "chat.html", {})
+
+
+@app.post("/api/chat")
+def api_chat(payload: ChatRequest) -> dict:
+    question = payload.question.strip()
+    if not question:
+        raise HTTPException(status_code=400, detail="Question cannot be empty.")
+    try:
+        return answer_question(question, top_k=payload.top_k)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.exception("Chat request failed")
+        raise HTTPException(
+            status_code=500,
+            detail="Unable to answer the question right now.",
+        ) from exc
+
+
+@app.get("/compare", response_class=HTMLResponse)
+def compare_page(request: Request) -> HTMLResponse:
+    return templates.TemplateResponse(
+        request,
+        "compare.html",
+        {"investors": INVESTORS},
+    )
+
+
+@app.post("/api/compare")
+def api_compare(payload: CompareRequest) -> dict:
+    topic = payload.topic.strip()
+    investor_keys = list(dict.fromkeys(payload.investors))
+    if not topic:
+        raise HTTPException(status_code=400, detail="Topic cannot be empty.")
+    if not 2 <= len(investor_keys) <= 4:
+        raise HTTPException(
+            status_code=400,
+            detail="Select between 2 and 4 investors.",
+        )
+    invalid = [key for key in investor_keys if key not in INVESTORS]
+    if invalid:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unknown investors: {', '.join(invalid)}",
+        )
+    try:
+        return compare_investors(topic, investor_keys)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.exception("Investor comparison failed")
+        raise HTTPException(
+            status_code=500,
+            detail="Unable to compare investor views right now.",
+        ) from exc
 
 
 @app.get("/article/{article_id}", response_class=HTMLResponse)

@@ -1,0 +1,186 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="compare-shell">
+  <header class="chat-head">
+    <p class="eyebrow">Investor view comparison</p>
+    <h1>比较顶级投资机构的观点</h1>
+    <p>选择同一个主题和 2–4 家机构，查看它们的核心判断、共识与分歧。</p>
+  </header>
+
+  <form class="compare-form" id="compare-form">
+    <label for="compare-topic">研究主题</label>
+    <input id="compare-topic" name="topic" maxlength="500" placeholder="例如：AI application defensibility" required>
+
+    <fieldset>
+      <legend>选择投资机构</legend>
+      <div class="investor-options">
+        {% for key, name in investors.items() %}
+          <label class="investor-option">
+            <input type="checkbox" name="investors" value="{{ key }}">
+            <span>{{ name }}</span>
+          </label>
+        {% endfor %}
+      </div>
+    </fieldset>
+
+    <div class="chat-actions">
+      <span id="selection-count">请选择 2–4 家机构</span>
+      <button type="submit">生成对比</button>
+    </div>
+  </form>
+
+  <section class="compare-result" id="compare-result" hidden aria-live="polite">
+    <div id="compare-status"></div>
+    <div id="compare-content" hidden>
+      <div class="section-head">
+        <p class="eyebrow">机构观点对比</p>
+        <h2 id="comparison-title"></h2>
+      </div>
+      <div class="comparison-table-wrap">
+        <table class="comparison-table">
+          <thead>
+            <tr>
+              <th>投资机构</th>
+              <th>核心论点</th>
+              <th>关键论据</th>
+            </tr>
+          </thead>
+          <tbody id="comparison-body"></tbody>
+        </table>
+      </div>
+
+      <div class="comparison-sections">
+        <section class="comparison-panel">
+          <h2>共同观点</h2>
+          <div id="agreements"></div>
+        </section>
+        <section class="comparison-panel">
+          <h2>观点分歧</h2>
+          <div id="disagreements"></div>
+        </section>
+        <section class="comparison-panel wide">
+          <h2>投资启示</h2>
+          <div id="implications"></div>
+        </section>
+      </div>
+
+      <section class="citation-section" id="compare-citations">
+        <h2>引用来源</h2>
+        <div class="citation-list" id="compare-citation-list"></div>
+      </section>
+      <button class="save-research-button" id="save-comparison" type="button">保存到 Thesis</button>
+    </div>
+  </section>
+</section>
+
+<script>
+  const compareForm = document.getElementById("compare-form");
+  const investorInputs = [...compareForm.querySelectorAll('input[name="investors"]')];
+  const compareButton = compareForm.querySelector("button");
+  const selectionCount = document.getElementById("selection-count");
+  const compareResult = document.getElementById("compare-result");
+  const compareStatus = document.getElementById("compare-status");
+  const compareContent = document.getElementById("compare-content");
+  let latestComparison = null;
+
+  function escapeHtml(value) {
+    const element = document.createElement("div");
+    element.textContent = value || "";
+    return element.innerHTML;
+  }
+
+  function selectedInvestors() {
+    return investorInputs.filter((input) => input.checked).map((input) => input.value);
+  }
+
+  function updateSelection() {
+    const count = selectedInvestors().length;
+    selectionCount.textContent = count ? `已选择 ${count} 家机构` : "请选择 2–4 家机构";
+    investorInputs.forEach((input) => {
+      input.disabled = count >= 4 && !input.checked;
+    });
+  }
+
+  function renderList(items, emptyText) {
+    if (!items || !items.length) return `<p class="muted-copy">${escapeHtml(emptyText)}</p>`;
+    return `<ul>${items.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>`;
+  }
+
+  function evidenceLabel(status) {
+    return status === "sufficient" ? "证据充足" : "证据不足";
+  }
+
+  investorInputs.forEach((input) => input.addEventListener("change", updateSelection));
+
+  compareForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const topic = document.getElementById("compare-topic").value.trim();
+    const investors = selectedInvestors();
+    if (investors.length < 2 || investors.length > 4) {
+      selectionCount.textContent = "必须选择 2–4 家机构";
+      return;
+    }
+
+    compareButton.disabled = true;
+    compareButton.textContent = "比较中...";
+    compareResult.hidden = false;
+    compareContent.hidden = true;
+    compareStatus.innerHTML = '<p class="chat-status">正在分别检索各机构观点并生成比较...</p>';
+
+    try {
+      const response = await fetch("/api/compare", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({topic, investors})
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.detail || "请求失败");
+
+      document.getElementById("comparison-title").textContent = data.topic;
+      document.getElementById("comparison-body").innerHTML = data.funds.map((fund) => `
+        <tr>
+          <th scope="row">
+            ${escapeHtml(fund.name)}
+            <small class="evidence-${escapeHtml(fund.evidence_status)}">${evidenceLabel(fund.evidence_status)}</small>
+          </th>
+          <td>${escapeHtml(fund.core_thesis)}</td>
+          <td>${renderList(fund.key_arguments, "没有足够论据")}</td>
+        </tr>
+      `).join("");
+      document.getElementById("agreements").innerHTML = renderList(data.agreements, "当前来源中没有明确共识");
+      document.getElementById("disagreements").innerHTML = renderList(data.disagreements, "当前来源中没有明确分歧");
+      document.getElementById("implications").innerHTML = renderList(data.investment_implications, "当前证据不足以形成投资含义");
+      document.getElementById("compare-citation-list").innerHTML = data.citations.map((citation) => `
+        <a class="citation-card" href="${escapeHtml(citation.url)}" target="_blank" rel="noreferrer">
+          <span class="citation-number">[${citation.citation_number}]</span>
+          <span class="citation-copy">
+            <strong>${escapeHtml(citation.title)}</strong>
+            <small>${escapeHtml(citation.source)} · ${escapeHtml(citation.published_at || "Date unavailable")}</small>
+          </span>
+        </a>
+      `).join("") || '<p class="muted-copy">没有找到相关来源。</p>';
+      latestComparison = data;
+
+      compareStatus.innerHTML = "";
+      compareContent.hidden = false;
+    } catch (error) {
+      compareStatus.innerHTML = `<p class="chat-error">${escapeHtml(error.message)}</p>`;
+    } finally {
+      compareButton.disabled = false;
+      compareButton.textContent = "生成对比";
+    }
+  });
+
+  document.getElementById("save-comparison").addEventListener("click", () => {
+    if (!latestComparison) return;
+    ThesisflowSaveEvidence({
+      evidence_type: "comparison",
+      title: `机构观点对比：${latestComparison.topic}`,
+      excerpt: JSON.stringify({funds: latestComparison.funds, agreements: latestComparison.agreements, disagreements: latestComparison.disagreements, investment_implications: latestComparison.investment_implications}).slice(0, 12000),
+      source: "Thesisflow Investor Comparison",
+      article_ids: latestComparison.citations.map((item) => item.article_id),
+      metadata: {topic: latestComparison.topic}
+    });
+  });
+</script>
+{% endblock %}

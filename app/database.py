@@ -6,6 +6,7 @@ from typing import Any
 
 import psycopg
 from psycopg.rows import dict_row
+from psycopg.types.json import Jsonb
 
 from app.config import CATEGORIES, DATABASE_URL, MIN_ARTICLE_DATE, TOP_READS_MAX_AGE_DAYS
 
@@ -63,6 +64,10 @@ def normalize_article_for_write(article: dict[str, Any]) -> dict[str, Any]:
     normalized = dict(article)
     normalized["is_long_form"] = bool(normalized.get("is_long_form"))
     return normalized
+
+
+def vector_literal(values: list[float]) -> str:
+    return "[" + ",".join(str(value) for value in values) + "]"
 
 
 def upsert_article(article: dict[str, Any]) -> bool:
@@ -259,6 +264,141 @@ def get_article(article_id: int) -> dict[str, Any] | None:
         ).fetchone()
 
 
+def list_articles_for_indexing(limit: int = 100) -> list[dict[str, Any]]:
+    with get_connection() as conn:
+        return conn.execute(
+            """
+            SELECT a.*
+            FROM articles a
+            LEFT JOIN article_chunks c ON c.article_id = a.id
+            WHERE COALESCE(a.content, '') <> ''
+              AND """
+            + ELIGIBLE_ARTICLE_SQL.replace("source", "a.source").replace(
+                "word_count", "a.word_count"
+            ).replace("published_at", "a.published_at").replace(
+                "fetched_at", "a.fetched_at"
+            )
+            + """
+            GROUP BY a.id
+            HAVING COUNT(c.id) = 0 OR COUNT(c.embedding) = 0
+            ORDER BY a.is_long_form DESC, a.word_count DESC,
+                     COALESCE(a.published_at, a.fetched_at) DESC
+            LIMIT %(limit)s
+            """,
+            query_params(limit=limit),
+        ).fetchall()
+
+
+def replace_article_chunks(
+    article_id: int,
+    chunks: list[dict[str, Any]],
+    embedding_model: str | None,
+) -> None:
+    with get_connection() as conn:
+        with conn.transaction():
+            conn.execute(
+                "DELETE FROM article_chunks WHERE article_id = %s",
+                (article_id,),
+            )
+            for chunk in chunks:
+                embedding = chunk.get("embedding")
+                conn.execute(
+                    """
+                    INSERT INTO article_chunks (
+                        article_id, chunk_index, content, word_count,
+                        content_hash, embedding, embedding_model
+                    )
+                    VALUES (%s, %s, %s, %s, %s, %s::vector, %s)
+                    """,
+                    (
+                        article_id,
+                        chunk["chunk_index"],
+                        chunk["content"],
+                        chunk["word_count"],
+                        chunk["content_hash"],
+                        vector_literal(embedding) if embedding else None,
+                        embedding_model if embedding else None,
+                    ),
+                )
+
+
+def search_article_chunks_vector(
+    embedding: list[float], limit: int = 6, source: str | None = None
+) -> list[dict[str, Any]]:
+    query_vector = vector_literal(embedding)
+    source_clause = " AND a.source = %(source)s" if source else ""
+    with get_connection() as conn:
+        return conn.execute(
+            """
+            SELECT
+                c.id AS chunk_id,
+                c.content AS chunk_content,
+                c.chunk_index,
+                a.id AS article_id,
+                a.title,
+                a.source,
+                a.url,
+                a.published_at,
+                a.fetched_at,
+                1 - (c.embedding <=> %(embedding)s::vector) AS score
+            FROM article_chunks c
+            JOIN articles a ON a.id = c.article_id
+            WHERE c.embedding IS NOT NULL
+              AND """
+            + ELIGIBLE_ARTICLE_SQL.replace("source", "a.source").replace(
+                "word_count", "a.word_count"
+            ).replace("published_at", "a.published_at").replace(
+                "fetched_at", "a.fetched_at"
+            )
+            + source_clause
+            + """
+            ORDER BY c.embedding <=> %(embedding)s::vector
+            LIMIT %(limit)s
+            """,
+            query_params(embedding=query_vector, limit=limit, source=source),
+        ).fetchall()
+
+
+def search_article_chunks_text(
+    query: str, limit: int = 6, source: str | None = None
+) -> list[dict[str, Any]]:
+    source_clause = " AND a.source = %(source)s" if source else ""
+    with get_connection() as conn:
+        return conn.execute(
+            """
+            SELECT
+                c.id AS chunk_id,
+                c.content AS chunk_content,
+                c.chunk_index,
+                a.id AS article_id,
+                a.title,
+                a.source,
+                a.url,
+                a.published_at,
+                a.fetched_at,
+                ts_rank_cd(
+                    to_tsvector('english', c.content),
+                    websearch_to_tsquery('english', %(query)s)
+                ) AS score
+            FROM article_chunks c
+            JOIN articles a ON a.id = c.article_id
+            WHERE to_tsvector('english', c.content)
+                  @@ websearch_to_tsquery('english', %(query)s)
+              AND """
+            + ELIGIBLE_ARTICLE_SQL.replace("source", "a.source").replace(
+                "word_count", "a.word_count"
+            ).replace("published_at", "a.published_at").replace(
+                "fetched_at", "a.fetched_at"
+            )
+            + source_clause
+            + """
+            ORDER BY score DESC
+            LIMIT %(limit)s
+            """,
+            query_params(query=query, limit=limit, source=source),
+        ).fetchall()
+
+
 def list_unsummarized_articles(limit: int = 20) -> list[dict[str, Any]]:
     with get_connection() as conn:
         return conn.execute(
@@ -356,6 +496,369 @@ def list_latest_weekly_insights() -> list[dict[str, Any]]:
             ORDER BY category
             """
         ).fetchall()
+
+
+def list_articles_for_weekly_report(
+    week_start: str, week_end: str, limit: int = 200
+) -> list[dict[str, Any]]:
+    with get_connection() as conn:
+        return conn.execute(
+            """
+            SELECT *
+            FROM articles
+            WHERE DATE(COALESCE(published_at, fetched_at)) >= %(week_start)s
+              AND DATE(COALESCE(published_at, fetched_at)) <= %(week_end)s
+              AND """
+            + ELIGIBLE_ARTICLE_SQL
+            + """
+            ORDER BY COALESCE(published_at, fetched_at) DESC,
+                     is_long_form DESC, word_count DESC
+            LIMIT %(limit)s
+            """,
+            query_params(
+                week_start=week_start,
+                week_end=week_end,
+                limit=limit,
+            ),
+        ).fetchall()
+
+
+def get_weekly_market_report(week_start: str) -> dict[str, Any] | None:
+    with get_connection() as conn:
+        return conn.execute(
+            """
+            SELECT *
+            FROM weekly_market_reports
+            WHERE week_start = %s
+            """,
+            (week_start,),
+        ).fetchone()
+
+
+def get_latest_weekly_market_report() -> dict[str, Any] | None:
+    with get_connection() as conn:
+        return conn.execute(
+            """
+            SELECT *
+            FROM weekly_market_reports
+            ORDER BY week_start DESC
+            LIMIT 1
+            """
+        ).fetchone()
+
+
+def save_weekly_market_report(
+    *,
+    week_start: str,
+    week_end: str,
+    report: dict[str, Any],
+    citations: list[dict[str, Any]],
+    source_article_ids: list[int],
+    article_count: int,
+    investor_count: int,
+    model: str,
+    generated_at: str,
+) -> None:
+    with get_connection() as conn:
+        conn.execute(
+            """
+            INSERT INTO weekly_market_reports (
+                week_start, week_end, report, citations, source_article_ids,
+                article_count, investor_count, model, generated_at
+            )
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+            ON CONFLICT (week_start) DO UPDATE SET
+                week_end = EXCLUDED.week_end,
+                report = EXCLUDED.report,
+                citations = EXCLUDED.citations,
+                source_article_ids = EXCLUDED.source_article_ids,
+                article_count = EXCLUDED.article_count,
+                investor_count = EXCLUDED.investor_count,
+                model = EXCLUDED.model,
+                report_version = weekly_market_reports.report_version + 1,
+                generated_at = EXCLUDED.generated_at
+            """,
+            (
+                week_start,
+                week_end,
+                Jsonb(report),
+                Jsonb(citations),
+                source_article_ids,
+                article_count,
+                investor_count,
+                model,
+                generated_at,
+            ),
+        )
+
+
+def list_theses(workspace_id: str) -> list[dict[str, Any]]:
+    with get_connection() as conn:
+        return conn.execute(
+            """
+            SELECT t.*, COUNT(e.id) AS evidence_count
+            FROM investment_theses t
+            LEFT JOIN thesis_evidence e ON e.thesis_id = t.id
+            WHERE t.workspace_id = %s
+            GROUP BY t.id
+            ORDER BY t.updated_at DESC
+            """,
+            (workspace_id,),
+        ).fetchall()
+
+
+def count_theses(workspace_id: str) -> int:
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT COUNT(*) AS count FROM investment_theses WHERE workspace_id = %s",
+            (workspace_id,),
+        ).fetchone()
+        return int(row["count"])
+
+
+def create_thesis(
+    workspace_id: str, title: str, core_claim: str
+) -> dict[str, Any]:
+    with get_connection() as conn:
+        return conn.execute(
+            """
+            INSERT INTO investment_theses (workspace_id, title, core_claim)
+            VALUES (%s, %s, %s)
+            RETURNING *
+            """,
+            (workspace_id, title, core_claim),
+        ).fetchone()
+
+
+def get_thesis(thesis_id: int, workspace_id: str) -> dict[str, Any] | None:
+    with get_connection() as conn:
+        return conn.execute(
+            """
+            SELECT *
+            FROM investment_theses
+            WHERE id = %s AND workspace_id = %s
+            """,
+            (thesis_id, workspace_id),
+        ).fetchone()
+
+
+def update_thesis(
+    thesis_id: int,
+    workspace_id: str,
+    *,
+    title: str,
+    core_claim: str,
+) -> dict[str, Any] | None:
+    with get_connection() as conn:
+        return conn.execute(
+            """
+            UPDATE investment_theses
+            SET title = %s, core_claim = %s, updated_at = NOW()
+            WHERE id = %s AND workspace_id = %s
+            RETURNING *
+            """,
+            (title, core_claim, thesis_id, workspace_id),
+        ).fetchone()
+
+
+def list_thesis_evidence(
+    thesis_id: int, workspace_id: str
+) -> list[dict[str, Any]]:
+    with get_connection() as conn:
+        return conn.execute(
+            """
+            SELECT e.*
+            FROM thesis_evidence e
+            JOIN investment_theses t ON t.id = e.thesis_id
+            WHERE e.thesis_id = %s AND t.workspace_id = %s
+            ORDER BY e.created_at
+            """,
+            (thesis_id, workspace_id),
+        ).fetchall()
+
+
+def count_thesis_evidence(thesis_id: int, workspace_id: str) -> int:
+    with get_connection() as conn:
+        row = conn.execute(
+            """
+            SELECT COUNT(*) AS count
+            FROM thesis_evidence e
+            JOIN investment_theses t ON t.id = e.thesis_id
+            WHERE e.thesis_id = %s AND t.workspace_id = %s
+            """,
+            (thesis_id, workspace_id),
+        ).fetchone()
+        return int(row["count"])
+
+
+def search_articles_for_evidence(
+    query: str, limit: int = 12
+) -> list[dict[str, Any]]:
+    pattern = f"%{query}%"
+    with get_connection() as conn:
+        return conn.execute(
+            """
+            SELECT id, title, source, url, published_at, fetched_at,
+                   category, summary, word_count
+            FROM articles
+            WHERE (
+                title ILIKE %(pattern)s
+                OR source ILIKE %(pattern)s
+                OR category ILIKE %(pattern)s
+                OR summary ILIKE %(pattern)s
+                OR content ILIKE %(pattern)s
+            )
+              AND """
+            + ELIGIBLE_ARTICLE_SQL
+            + """
+            ORDER BY is_long_form DESC, word_count DESC,
+                     COALESCE(published_at, fetched_at) DESC
+            LIMIT %(limit)s
+            """,
+            query_params(pattern=pattern, limit=limit),
+        ).fetchall()
+
+
+def add_article_evidence(
+    thesis_id: int,
+    workspace_id: str,
+    article_id: int,
+) -> dict[str, Any] | None:
+    with get_connection() as conn:
+        thesis = conn.execute(
+            "SELECT id FROM investment_theses WHERE id = %s AND workspace_id = %s",
+            (thesis_id, workspace_id),
+        ).fetchone()
+        if not thesis:
+            return None
+        article = conn.execute(
+            "SELECT * FROM articles WHERE id = %s",
+            (article_id,),
+        ).fetchone()
+        if not article:
+            return None
+        excerpt = article["summary"] or (article["content"] or "")[:3000]
+        return conn.execute(
+            """
+            INSERT INTO thesis_evidence (
+                thesis_id, evidence_type, article_id, title, source, url,
+                published_at, excerpt, metadata
+            )
+            VALUES (%s, 'article', %s, %s, %s, %s, %s, %s, %s)
+            ON CONFLICT (thesis_id, article_id) WHERE article_id IS NOT NULL
+            DO UPDATE SET excerpt = EXCLUDED.excerpt
+            RETURNING *
+            """,
+            (
+                thesis_id,
+                article_id,
+                article["title"],
+                article["source"],
+                article["url"],
+                article["published_at"] or article["fetched_at"],
+                excerpt,
+                Jsonb({"category": article["category"]}),
+            ),
+        ).fetchone()
+
+
+def add_snapshot_evidence(
+    thesis_id: int,
+    workspace_id: str,
+    *,
+    evidence_type: str,
+    title: str,
+    excerpt: str,
+    source: str | None = None,
+    url: str | None = None,
+    note: str | None = None,
+    metadata: dict[str, Any] | None = None,
+) -> dict[str, Any] | None:
+    with get_connection() as conn:
+        thesis = conn.execute(
+            "SELECT id FROM investment_theses WHERE id = %s AND workspace_id = %s",
+            (thesis_id, workspace_id),
+        ).fetchone()
+        if not thesis:
+            return None
+        return conn.execute(
+            """
+            INSERT INTO thesis_evidence (
+                thesis_id, evidence_type, title, source, url, excerpt, note, metadata
+            )
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+            RETURNING *
+            """,
+            (
+                thesis_id,
+                evidence_type,
+                title,
+                source,
+                url,
+                excerpt,
+                note,
+                Jsonb(metadata or {}),
+            ),
+        ).fetchone()
+
+
+def delete_thesis_evidence(
+    thesis_id: int, workspace_id: str, evidence_id: int
+) -> bool:
+    with get_connection() as conn:
+        row = conn.execute(
+            """
+            DELETE FROM thesis_evidence e
+            USING investment_theses t
+            WHERE e.id = %s AND e.thesis_id = %s
+              AND t.id = e.thesis_id AND t.workspace_id = %s
+            RETURNING e.id
+            """,
+            (evidence_id, thesis_id, workspace_id),
+        ).fetchone()
+        return row is not None
+
+
+def save_thesis_sections(
+    thesis_id: int,
+    workspace_id: str,
+    sections: dict[str, Any],
+    model: str,
+) -> dict[str, Any] | None:
+    with get_connection() as conn:
+        return conn.execute(
+            """
+            UPDATE investment_theses
+            SET generated_sections = %s,
+                analysis_model = %s,
+                status = 'developed',
+                updated_at = NOW()
+            WHERE id = %s AND workspace_id = %s
+            RETURNING *
+            """,
+            (Jsonb(sections), model, thesis_id, workspace_id),
+        ).fetchone()
+
+
+def save_thesis_memo(
+    thesis_id: int,
+    workspace_id: str,
+    memo: str,
+    model: str,
+) -> dict[str, Any] | None:
+    with get_connection() as conn:
+        return conn.execute(
+            """
+            UPDATE investment_theses
+            SET investment_memo = %s,
+                memo_model = %s,
+                status = 'memo_ready',
+                updated_at = NOW()
+            WHERE id = %s AND workspace_id = %s
+            RETURNING *
+            """,
+            (memo, model, thesis_id, workspace_id),
+        ).fetchone()
 
 
 def save_weekly_insight(

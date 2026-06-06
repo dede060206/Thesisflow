@@ -5,6 +5,8 @@ Thesisflow turns long-form venture writing into structured Chinese research brie
 It aggregates selected English-language articles from Andreessen Horowitz, Sequoia,
 Benchmark, Lightspeed, Y Combinator, NFX, Redpoint, and Bessemer, stores them in
 Postgres, generates OpenAI summaries, and serves a FastAPI/Jinja web frontend.
+It also supports stateless AI research chat grounded in article excerpts, with
+clickable citations to original publications.
 
 ## Local Setup
 
@@ -48,6 +50,19 @@ Run the ingestion worker:
 python scripts/worker.py
 ```
 
+The worker generates one comprehensive report every Monday for the previous
+Monday-to-Sunday period. Backfill a specific period with:
+
+```bash
+python scripts/generate_weekly_report.py --week-start 2026-06-01 --week-end 2026-06-07
+```
+
+Index existing articles after applying the pgvector migration:
+
+```bash
+python scripts/backfill_embeddings.py --limit 500
+```
+
 ## Routes
 
 - `/`: homepage
@@ -56,7 +71,17 @@ python scripts/worker.py
 - `/article/{id}`: article detail
 - `/daily`: articles fetched today
 - `/insight/{id}`: weekly category insight detail
+- `/chat`: AI research chat with sources
+- `/api/chat`: cited chat API
+- `/compare`: compare investor views on one topic
+- `/api/compare`: structured investor comparison API
+- `/weekly`: latest comprehensive weekly market report
+- `/theses`: saved investment theses for the current anonymous workspace
+- `/theses/new`: create a thesis from a core claim
 - `/api/articles`: JSON article API
+
+Thesis Builder uses a signed anonymous browser cookie instead of user accounts.
+Clearing browser cookies removes access to that browser's saved thesis workspace.
 
 There is intentionally no public update endpoint. Ingestion runs through
 `scripts/worker.py`.

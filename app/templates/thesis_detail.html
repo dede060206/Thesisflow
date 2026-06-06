@@ -1,0 +1,138 @@
+{% extends "base.html" %}
+{% block content %}
+{% if thesis %}
+<section class="thesis-editor">
+  <header class="workspace-header">
+    <div>
+      <p class="eyebrow">Investment thesis workspace</p>
+      <h1>{{ thesis.title }}</h1>
+      <p>{{ evidence | length }} / {{ max_evidence }} 条证据 · {{ thesis.status }}</p>
+    </div>
+    <div class="workspace-actions">
+      <a class="ghost-link" href="/theses">返回列表</a>
+      {% if thesis.investment_memo %}<a class="source-link" href="/theses/{{ thesis.id }}/export.md">导出 Markdown</a>{% endif %}
+    </div>
+  </header>
+
+  <section class="thesis-layout">
+    <div class="thesis-main">
+      <form class="thesis-form" id="edit-thesis-form">
+        <label for="thesis-title">Thesis 名称</label>
+        <input id="thesis-title" maxlength="200" value="{{ thesis.title }}" required>
+        <label for="core-claim">原始核心判断</label>
+        <textarea id="core-claim" maxlength="3000" rows="6" required>{{ thesis.core_claim }}</textarea>
+        <div class="chat-actions">
+          <span id="save-status">修改后请保存</span>
+          <button type="submit">保存</button>
+        </div>
+      </form>
+
+      <section class="thesis-section">
+        <div class="thesis-section-head">
+          <div><p class="eyebrow">AI development</p><h2>研究框架</h2></div>
+          <button class="source-link button-reset" id="generate-sections">生成 / 重新生成</button>
+        </div>
+        <p class="action-status" id="generate-status"></p>
+        {% set sections = thesis.generated_sections or {} %}
+        {% if sections.core_claim %}
+          <article class="research-block"><h3>🎯 核心论点</h3><p>{{ sections.core_claim }}</p></article>
+          <article class="research-block"><h3>✅ 支持证据</h3>
+            <ul>{% for item in sections.supporting_evidence %}<li>{{ item.statement }} {% for id in item.evidence_ids %}<a href="#evidence-{{ id }}">[E{{ id }}]</a>{% endfor %}</li>{% endfor %}</ul>
+          </article>
+          <article class="research-block"><h3>⚖️ 反方观点</h3>
+            <ul>{% for item in sections.counterarguments %}<li>{{ item.statement }} {% for id in item.evidence_ids %}<a href="#evidence-{{ id }}">[E{{ id }}]</a>{% endfor %}</li>{% endfor %}</ul>
+          </article>
+          <article class="research-block"><h3>❓ 关键问题</h3><ul>{% for item in sections.key_questions %}<li>{{ item }}</li>{% endfor %}</ul></article>
+          <article class="research-block"><h3>📈 投资启示</h3>
+            <ul>{% for item in sections.investment_implications %}<li>{{ item.statement }} {% for id in item.evidence_ids %}<a href="#evidence-{{ id }}">[E{{ id }}]</a>{% endfor %}</li>{% endfor %}</ul>
+          </article>
+        {% else %}
+          <p class="muted-copy">添加证据后，让 AI 帮你形成支持论据、反方观点和待验证问题。</p>
+        {% endif %}
+      </section>
+
+      <section class="thesis-section">
+        <div class="thesis-section-head">
+          <div><p class="eyebrow">Investment memo</p><h2>投资备忘录</h2></div>
+          <button class="source-link button-reset" id="generate-memo">生成 / 重新生成</button>
+        </div>
+        <p class="action-status" id="memo-status"></p>
+        {% if thesis.investment_memo %}<pre class="memo-output">{{ thesis.investment_memo }}</pre>{% else %}<p class="muted-copy">研究框架完成后生成可导出的 Markdown memo。</p>{% endif %}
+      </section>
+    </div>
+
+    <aside class="evidence-sidebar">
+      <section class="evidence-search">
+        <p class="eyebrow">Evidence library</p>
+        <h2>添加文章证据</h2>
+        <form id="evidence-search-form">
+          <input id="evidence-query" placeholder="搜索文章标题、关键词或机构" minlength="2" required>
+          <button type="submit">搜索</button>
+        </form>
+        <div id="evidence-results"></div>
+      </section>
+
+      <section class="saved-evidence">
+        <h2>已保存证据</h2>
+        {% for item in evidence %}
+          <article class="evidence-card" id="evidence-{{ item.id }}">
+            <div class="card-top"><span class="source-pill">E{{ item.id }}</span><span class="meta">{{ item.evidence_type }}</span></div>
+            <h3>{% if item.url %}<a href="{{ item.url }}" target="_blank" rel="noreferrer">{{ item.title }}</a>{% else %}{{ item.title }}{% endif %}</h3>
+            {% if item.source %}<p class="meta">{{ item.source }}</p>{% endif %}
+            <p>{{ item.excerpt[:420] }}{% if item.excerpt | length > 420 %}…{% endif %}</p>
+            <button class="delete-evidence" data-evidence-id="{{ item.id }}">删除</button>
+          </article>
+        {% else %}<p class="muted-copy">尚未添加证据。</p>{% endfor %}
+      </section>
+    </aside>
+  </section>
+</section>
+
+<script>
+  const thesisId = {{ thesis.id }};
+  const escapeHtml = (value) => { const el = document.createElement("div"); el.textContent = value || ""; return el.innerHTML; };
+
+  document.getElementById("edit-thesis-form").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const status = document.getElementById("save-status");
+    status.textContent = "保存中...";
+    const response = await fetch(`/api/theses/${thesisId}`, {
+      method: "PATCH", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({title: document.getElementById("thesis-title").value.trim(), core_claim: document.getElementById("core-claim").value.trim()})
+    });
+    status.textContent = response.ok ? "已保存" : "保存失败";
+  });
+
+  document.getElementById("evidence-search-form").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const results = document.getElementById("evidence-results");
+    results.innerHTML = '<p class="chat-status">搜索中...</p>';
+    const q = encodeURIComponent(document.getElementById("evidence-query").value.trim());
+    const response = await fetch(`/api/theses/${thesisId}/evidence/search?q=${q}`);
+    const data = await response.json();
+    results.innerHTML = data.map((article) => `<article class="evidence-result"><strong>${escapeHtml(article.title)}</strong><small>${escapeHtml(article.source)}</small><button data-article-id="${article.id}">添加</button></article>`).join("") || '<p class="muted-copy">没有找到相关文章。</p>';
+    results.querySelectorAll("button").forEach((button) => button.addEventListener("click", async () => {
+      button.disabled = true;
+      const add = await fetch(`/api/theses/${thesisId}/evidence/articles`, {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({article_ids: [Number(button.dataset.articleId)]})});
+      if (add.ok) window.location.reload(); else button.textContent = "无法添加";
+    }));
+  });
+
+  document.querySelectorAll(".delete-evidence").forEach((button) => button.addEventListener("click", async () => {
+    const response = await fetch(`/api/theses/${thesisId}/evidence/${button.dataset.evidenceId}`, {method: "DELETE"});
+    if (response.ok) window.location.reload();
+  }));
+
+  async function runAction(path, statusId, label) {
+    const status = document.getElementById(statusId);
+    status.textContent = label;
+    const response = await fetch(path, {method: "POST"});
+    const data = await response.json();
+    if (!response.ok) { status.textContent = data.detail || "操作失败"; return; }
+    window.location.reload();
+  }
+  document.getElementById("generate-sections").addEventListener("click", () => runAction(`/api/theses/${thesisId}/generate`, "generate-status", "正在分析证据并发展论点..."));
+  document.getElementById("generate-memo").addEventListener("click", () => runAction(`/api/theses/${thesisId}/memo`, "memo-status", "正在生成投资备忘录..."));
+</script>
+{% else %}<p class="empty">Thesis 不存在，或不属于当前浏览器 workspace。</p>{% endif %}
+{% endblock %}

@@ -37,6 +37,18 @@ APP_NAME=Thesisflow
 DATABASE_URL=postgresql://USER:PASSWORD@HOST:5432/DATABASE?sslmode=require
 OPENAI_API_KEY=your_openai_api_key
 OPENAI_MODEL=gpt-4.1-mini
+CHAT_MODEL=gpt-4.1-mini
+WEEKLY_REPORT_MODEL=gpt-4.1-mini
+WEEKLY_REPORT_BATCH_SIZE=12
+THESIS_MODEL=gpt-4.1-mini
+THESIS_MAX_EVIDENCE=20
+THESIS_MAX_PER_WORKSPACE=25
+WORKSPACE_SECRET=replace_with_a_long_random_secret
+EMBEDDING_MODEL=text-embedding-3-small
+EMBEDDING_DIMENSIONS=1536
+CHAT_TOP_K=6
+ARTICLE_CHUNK_WORDS=450
+ARTICLE_CHUNK_OVERLAP_WORDS=60
 CRON_SECRET=replace_with_a_long_random_secret
 DAILY_ARTICLE_LIMIT=20
 LONG_FORM_WORD_THRESHOLD=1000
@@ -55,7 +67,13 @@ This creates:
 
 - `schema_migrations`
 - `articles`
+- `article_chunks`
 - `weekly_category_insights`
+- `weekly_market_reports`
+- `investment_theses`
+- `thesis_evidence`
+
+Migration `002_article_chunks.sql` enables Neon's `vector` extension.
 
 ## 4. Run One Manual Worker Pass
 
@@ -75,6 +93,12 @@ Then run one worker pass:
 python scripts/worker.py
 ```
 
+For an existing database, index previously imported articles:
+
+```bash
+python scripts/backfill_embeddings.py --limit 500
+```
+
 Use this once before enabling scheduled ingestion to verify:
 
 - article fetching works
@@ -91,7 +115,18 @@ Use this once before enabling scheduled ingestion to verify:
 ```bash
 APP_NAME=Thesisflow
 DATABASE_URL=postgresql://USER:PASSWORD@HOST:5432/DATABASE?sslmode=require
+OPENAI_API_KEY=your_openai_api_key
 OPENAI_MODEL=gpt-4.1-mini
+CHAT_MODEL=gpt-4.1-mini
+WEEKLY_REPORT_MODEL=gpt-4.1-mini
+WEEKLY_REPORT_BATCH_SIZE=12
+THESIS_MODEL=gpt-4.1-mini
+THESIS_MAX_EVIDENCE=20
+THESIS_MAX_PER_WORKSPACE=25
+WORKSPACE_SECRET=replace_with_a_long_random_secret
+EMBEDDING_MODEL=text-embedding-3-small
+EMBEDDING_DIMENSIONS=1536
+CHAT_TOP_K=6
 DAILY_ARTICLE_LIMIT=20
 LONG_FORM_WORD_THRESHOLD=1000
 MIN_ARTICLE_DATE=2025-06-01
@@ -99,8 +134,11 @@ MAX_ARTICLE_AGE_DAYS=15
 TOP_READS_MAX_AGE_DAYS=7
 ```
 
-`OPENAI_API_KEY` is not required by the web app unless future web routes call
-OpenAI directly. Keep it out of Vercel unless needed.
+`OPENAI_API_KEY` is required by AI Chat, Investor Comparison, and Thesis Builder.
+Store it as a Vercel secret; it is used only by the server-side Python function
+and is never sent to the browser.
+`WORKSPACE_SECRET` must be a strong Vercel secret. Changing it invalidates all
+existing anonymous Thesis Builder workspace cookies.
 
 4. Deploy.
 5. Verify:
@@ -110,6 +148,11 @@ OpenAI directly. Keep it out of Vercel unless needed.
 /api/articles
 /search?q=AI
 /category/AI
+/chat
+/compare
+/weekly
+/theses
+/theses/new
 ```
 
 ## 6. Configure GitHub Actions Worker
@@ -125,6 +168,12 @@ Optional repository variables:
 
 ```text
 OPENAI_MODEL
+WEEKLY_REPORT_MODEL
+WEEKLY_REPORT_BATCH_SIZE
+EMBEDDING_MODEL
+EMBEDDING_DIMENSIONS
+ARTICLE_CHUNK_WORDS
+ARTICLE_CHUNK_OVERLAP_WORDS
 DAILY_ARTICLE_LIMIT
 LONG_FORM_WORD_THRESHOLD
 MIN_ARTICLE_DATE
@@ -139,6 +188,14 @@ The workflow is defined at:
 ```
 
 It runs daily at `08:00 UTC` and can also be run manually from GitHub Actions.
+On Mondays it generates the previous complete week's comprehensive market report.
+It no longer generates per-category weekly summaries.
+
+Backfill a specific report period with:
+
+```bash
+python scripts/generate_weekly_report.py --week-start 2026-06-01 --week-end 2026-06-07
+```
 
 ## 7. Rollback
 

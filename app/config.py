@@ -21,7 +21,21 @@ APP_NAME = env_str("APP_NAME", "Thesisflow")
 DATABASE_URL = env_str("DATABASE_URL")
 OPENAI_API_KEY = env_str("OPENAI_API_KEY")
 OPENAI_MODEL = env_str("OPENAI_MODEL", "gpt-4.1-mini")
+CHAT_MODEL = env_str("CHAT_MODEL", OPENAI_MODEL)
+WEEKLY_REPORT_MODEL = env_str("WEEKLY_REPORT_MODEL", CHAT_MODEL)
+WEEKLY_REPORT_BATCH_SIZE = env_int("WEEKLY_REPORT_BATCH_SIZE", 12)
+EMBEDDING_MODEL = env_str("EMBEDDING_MODEL", "text-embedding-3-small")
+EMBEDDING_DIMENSIONS = env_int("EMBEDDING_DIMENSIONS", 1536)
+CHAT_TOP_K = env_int("CHAT_TOP_K", 6)
+ARTICLE_CHUNK_WORDS = env_int("ARTICLE_CHUNK_WORDS", 450)
+ARTICLE_CHUNK_OVERLAP_WORDS = env_int("ARTICLE_CHUNK_OVERLAP_WORDS", 60)
 CRON_SECRET = env_str("CRON_SECRET")
+WORKSPACE_SECRET = env_str(
+    "WORKSPACE_SECRET", CRON_SECRET or "thesisflow-local-development"
+)
+THESIS_MODEL = env_str("THESIS_MODEL", CHAT_MODEL)
+THESIS_MAX_EVIDENCE = env_int("THESIS_MAX_EVIDENCE", 20)
+THESIS_MAX_PER_WORKSPACE = env_int("THESIS_MAX_PER_WORKSPACE", 25)
 DAILY_ARTICLE_LIMIT = env_int("DAILY_ARTICLE_LIMIT", 20)
 LONG_FORM_WORD_THRESHOLD = env_int("LONG_FORM_WORD_THRESHOLD", 1000)
 MIN_ARTICLE_DATE = env_str("MIN_ARTICLE_DATE", "2025-06-01")
@@ -94,3 +108,14 @@ FEEDS = [
 ]
 
 SOURCE_PRIORITY = {feed["source"]: index for index, feed in enumerate(FEEDS)}
+
+INVESTORS = {
+    "a16z": "Andreessen Horowitz",
+    "sequoia": "Sequoia",
+    "benchmark": "Benchmark",
+    "lightspeed": "Lightspeed",
+    "yc": "Y Combinator",
+    "nfx": "NFX",
+    "redpoint": "Redpoint",
+    "bessemer": "Bessemer",
+}

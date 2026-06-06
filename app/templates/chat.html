@@ -1,0 +1,142 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="chat-shell">
+  <header class="chat-head">
+    <p class="eyebrow">AI research with citations</p>
+    <h1>向 Thesisflow 提问</h1>
+    <p>基于已收录的 VC 长文回答，并附上可核验的原文来源。</p>
+  </header>
+
+  <form class="chat-form" id="chat-form">
+    <label for="chat-question">你的研究问题</label>
+    <textarea id="chat-question" name="question" maxlength="1500" rows="4" placeholder="例如：顶级 VC 如何看待 AI 应用层的长期护城河？" required></textarea>
+    <div class="chat-actions">
+      <span>回答仅基于 Thesisflow 已收录文章</span>
+      <button type="submit">开始研究</button>
+    </div>
+  </form>
+
+  <section class="chat-result" id="chat-result" hidden aria-live="polite">
+    <div class="chat-answer" id="chat-answer"></div>
+    <button class="save-research-button" id="save-chat" type="button" hidden>保存到 Thesis</button>
+    <div class="citation-section" id="citation-section" hidden>
+      <h2>引用来源</h2>
+      <div class="citation-list" id="citation-list"></div>
+    </div>
+  </section>
+</section>
+
+<script>
+  const form = document.getElementById("chat-form");
+  const button = form.querySelector("button");
+  const result = document.getElementById("chat-result");
+  const answer = document.getElementById("chat-answer");
+  const citationSection = document.getElementById("citation-section");
+  const citationList = document.getElementById("citation-list");
+  const saveChat = document.getElementById("save-chat");
+  let latestChat = null;
+
+  function escapeHtml(value) {
+    const element = document.createElement("div");
+    element.textContent = value || "";
+    return element.innerHTML;
+  }
+
+  function renderInline(value) {
+    return escapeHtml(value).replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
+  }
+
+  function renderResearchAnswer(value) {
+    const lines = (value || "").split("\n");
+    const output = [];
+    let listOpen = false;
+
+    function closeList() {
+      if (listOpen) {
+        output.push("</ul>");
+        listOpen = false;
+      }
+    }
+
+    lines.forEach((line) => {
+      const text = line.trim();
+      if (!text) {
+        closeList();
+        return;
+      }
+      if (text.startsWith("## ")) {
+        closeList();
+        output.push(`<h2>${renderInline(text.slice(3))}</h2>`);
+      } else if (text.startsWith("- ")) {
+        if (!listOpen) {
+          output.push("<ul>");
+          listOpen = true;
+        }
+        output.push(`<li>${renderInline(text.slice(2))}</li>`);
+      } else {
+        closeList();
+        output.push(`<p>${renderInline(text)}</p>`);
+      }
+    });
+    closeList();
+    return output.join("");
+  }
+
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const question = document.getElementById("chat-question").value.trim();
+    if (!question) return;
+
+    button.disabled = true;
+    button.textContent = "研究中...";
+    result.hidden = false;
+    saveChat.hidden = true;
+    answer.innerHTML = '<p class="chat-status">正在检索相关文章并生成回答...</p>';
+    citationSection.hidden = true;
+    citationList.innerHTML = "";
+
+    try {
+      const response = await fetch("/api/chat", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({question, top_k: 6})
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.detail || "请求失败");
+
+      answer.innerHTML = renderResearchAnswer(data.answer);
+      latestChat = {question, data};
+      saveChat.hidden = false;
+      if (data.citations.length) {
+        citationList.innerHTML = data.citations.map((citation) => `
+          <a class="citation-card" href="${escapeHtml(citation.url)}" target="_blank" rel="noreferrer">
+            <span class="citation-number">[${citation.citation_number}]</span>
+            <span class="citation-copy">
+              <strong>${escapeHtml(citation.title)}</strong>
+              <small>${escapeHtml(citation.source)} · ${escapeHtml(citation.published_at || "Date unavailable")}</small>
+            </span>
+          </a>
+        `).join("");
+        citationSection.hidden = false;
+      }
+    } catch (error) {
+      answer.innerHTML = `<p class="chat-error">${escapeHtml(error.message)}</p>`;
+    } finally {
+      button.disabled = false;
+      button.textContent = "开始研究";
+    }
+  });
+
+  saveChat.addEventListener("click", () => {
+    if (!latestChat) return;
+    ThesisflowSaveEvidence({
+      evidence_type: "chat",
+      title: `AI Chat: ${latestChat.question}`,
+      excerpt: latestChat.data.answer,
+      source: "Thesisflow AI Chat",
+      article_ids: latestChat.data.citations.map((item) => item.article_id),
+      metadata: {question: latestChat.question}
+    });
+  });
+</script>
+{% endblock %}

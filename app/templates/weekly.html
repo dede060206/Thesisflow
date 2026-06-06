@@ -1,0 +1,122 @@
+{% extends "base.html" %}
+{% block content %}
+{% if weekly_report %}
+  {% set report = weekly_report.report %}
+  <section class="weekly-dashboard">
+    <header class="weekly-header">
+      <p class="eyebrow">Weekly market intelligence</p>
+      <h1>Thesisflow 周度市场信号</h1>
+      <p>{{ weekly_report.week_start }} - {{ weekly_report.week_end }}</p>
+      <div class="weekly-stats">
+        <span><strong>{{ weekly_report.article_count }}</strong> 篇文章</span>
+        <span><strong>{{ weekly_report.investor_count }}</strong> 家机构</span>
+        <span>生成于 {{ weekly_report.generated_at }}</span>
+      </div>
+      <button class="save-research-button" id="save-weekly" type="button">保存到 Thesis</button>
+    </header>
+
+    <section class="weekly-section">
+      <div class="section-head">
+        <p class="eyebrow">Top signals this week</p>
+        <h2>🔥 本周核心信号</h2>
+      </div>
+      <div class="signal-list">
+        {% for signal in report.top_signals %}
+          <article class="signal-card">
+            <span class="signal-rank">{{ signal.rank }}</span>
+            <div>
+              <h3>{{ signal.title }}</h3>
+              <p>{{ signal.summary }}</p>
+              <p class="signal-why"><strong>为什么重要：</strong>{{ signal.why_it_matters }}</p>
+              {% if signal.investors %}<p class="signal-investors">{{ signal.investors | join(" · ") }}</p>{% endif %}
+              <p class="inline-citations">{% for number in signal.citation_numbers %}[{{ number }}] {% endfor %}</p>
+            </div>
+          </article>
+        {% else %}<p class="empty">本周没有足够信号。</p>{% endfor %}
+      </div>
+    </section>
+
+    <div class="weekly-grid">
+      <section class="weekly-panel">
+        <h2>📈 升温话题</h2>
+        {% for item in report.rising_topics %}
+          <article class="weekly-item">
+            <div class="weekly-item-head"><h3>{{ item.topic }}</h3><span class="momentum momentum-{{ item.momentum }}">{{ item.momentum }}</span></div>
+            <p>{{ item.evidence }}</p>
+            <p class="inline-citations">{% for number in item.citation_numbers %}[{{ number }}] {% endfor %}</p>
+          </article>
+        {% else %}<p class="muted-copy">暂无明确升温话题。</p>{% endfor %}
+      </section>
+
+      <section class="weekly-panel">
+        <h2>🤝 投资机构共识</h2>
+        {% for item in report.investor_consensus %}
+          <article class="weekly-item">
+            <p>{{ item.statement }}</p>
+            <p class="signal-investors">{{ item.investors | join(" · ") }}</p>
+            <p class="inline-citations">{% for number in item.citation_numbers %}[{{ number }}] {% endfor %}</p>
+          </article>
+        {% else %}<p class="muted-copy">本周没有形成清晰共识。</p>{% endfor %}
+      </section>
+
+      <section class="weekly-panel">
+        <h2>⚖️ 投资机构分歧</h2>
+        {% for item in report.investor_disagreements %}
+          <article class="weekly-item">
+            <h3>{{ item.issue }}</h3>
+            {% for position in item.positions %}
+              <p><strong>{{ position.investor }}：</strong>{{ position.view }}</p>
+            {% endfor %}
+            <p class="inline-citations">{% for number in item.citation_numbers %}[{{ number }}] {% endfor %}</p>
+          </article>
+        {% else %}<p class="muted-copy">本周没有足够证据识别机构分歧。</p>{% endfor %}
+      </section>
+
+      <section class="weekly-panel">
+        <h2>🌱 新兴主题</h2>
+        {% for item in report.emerging_themes %}
+          <article class="weekly-item">
+            <h3>{{ item.theme }}</h3>
+            <p>{{ item.early_signal }}</p>
+            <p><strong>接下来关注：</strong>{{ item.what_to_watch }}</p>
+            <p class="inline-citations">{% for number in item.citation_numbers %}[{{ number }}] {% endfor %}</p>
+          </article>
+        {% else %}<p class="muted-copy">本周没有足够证据识别新兴主题。</p>{% endfor %}
+      </section>
+    </div>
+
+    <section class="citation-section weekly-sources">
+      <h2>引用来源</h2>
+      <div class="citation-list">
+        {% for citation in weekly_report.citations %}
+          <a class="citation-card" href="{{ citation.url }}" target="_blank" rel="noreferrer">
+            <span class="citation-number">[{{ citation.citation_number }}]</span>
+            <span class="citation-copy">
+              <strong>{{ citation.title }}</strong>
+              <small>{{ citation.source }} · {{ citation.published_at }}</small>
+            </span>
+          </a>
+        {% endfor %}
+      </div>
+    </section>
+  </section>
+  <script>
+    document.getElementById("save-weekly").addEventListener("click", () => {
+      ThesisflowSaveEvidence({
+        evidence_type: "weekly_signal",
+        title: "周度市场信号：{{ weekly_report.week_start }} - {{ weekly_report.week_end }}",
+        excerpt: JSON.stringify({{ weekly_report.report | tojson }}).slice(0, 12000),
+        source: "Thesisflow Weekly Market Report",
+        article_ids: {{ weekly_citation_article_ids | tojson }},
+        metadata: {week_start: "{{ weekly_report.week_start }}", week_end: "{{ weekly_report.week_end }}"}
+      });
+    });
+  </script>
+{% else %}
+  <section class="weekly-empty">
+    <p class="eyebrow">Weekly market intelligence</p>
+    <h1>周度市场报告尚未生成</h1>
+    <p>worker 会在每周一自动生成上一完整自然周的综合市场报告。</p>
+  </section>
+{% endif %}
+{% endblock %}
