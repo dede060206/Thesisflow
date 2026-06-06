@@ -9,16 +9,24 @@ from dotenv import load_dotenv
 BASE_DIR = Path(__file__).resolve().parent.parent
 load_dotenv(BASE_DIR / ".env")
 
-APP_NAME = os.getenv("APP_NAME", "Thesisflow")
-DATABASE_URL = os.getenv("DATABASE_URL", "")
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
-OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4.1-mini")
-CRON_SECRET = os.getenv("CRON_SECRET", "")
-DAILY_ARTICLE_LIMIT = int(os.getenv("DAILY_ARTICLE_LIMIT", "20"))
-LONG_FORM_WORD_THRESHOLD = int(os.getenv("LONG_FORM_WORD_THRESHOLD", "1000"))
-MIN_ARTICLE_DATE = os.getenv("MIN_ARTICLE_DATE", "2025-06-01")
-MAX_ARTICLE_AGE_DAYS = int(os.getenv("MAX_ARTICLE_AGE_DAYS", "15"))
-TOP_READS_MAX_AGE_DAYS = int(os.getenv("TOP_READS_MAX_AGE_DAYS", "7"))
+def env_str(name: str, default: str = "") -> str:
+    return os.getenv(name) or default
+
+
+def env_int(name: str, default: int) -> int:
+    return int(env_str(name, str(default)))
+
+
+APP_NAME = env_str("APP_NAME", "Thesisflow")
+DATABASE_URL = env_str("DATABASE_URL")
+OPENAI_API_KEY = env_str("OPENAI_API_KEY")
+OPENAI_MODEL = env_str("OPENAI_MODEL", "gpt-4.1-mini")
+CRON_SECRET = env_str("CRON_SECRET")
+DAILY_ARTICLE_LIMIT = env_int("DAILY_ARTICLE_LIMIT", 20)
+LONG_FORM_WORD_THRESHOLD = env_int("LONG_FORM_WORD_THRESHOLD", 1000)
+MIN_ARTICLE_DATE = env_str("MIN_ARTICLE_DATE", "2025-06-01")
+MAX_ARTICLE_AGE_DAYS = env_int("MAX_ARTICLE_AGE_DAYS", 15)
+TOP_READS_MAX_AGE_DAYS = env_int("TOP_READS_MAX_AGE_DAYS", 7)
 
 CATEGORIES = [
     "AI",
