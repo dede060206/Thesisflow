@@ -114,7 +114,7 @@ def categorize_article(title: str, content: str) -> str:
 def enrich_article(article: dict[str, Any]) -> dict[str, Any]:
     count = word_count(article.get("content") or "")
     article["word_count"] = count
-    article["is_long_form"] = 1 if count > LONG_FORM_WORD_THRESHOLD else 0
+    article["is_long_form"] = count > LONG_FORM_WORD_THRESHOLD
     article["category"] = categorize_article(
         article.get("title", ""),
         article.get("content") or "",

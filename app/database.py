@@ -59,6 +59,12 @@ def query_params(**extra: Any) -> dict[str, Any]:
     return {"min_article_date": MIN_ARTICLE_DATE, **extra}
 
 
+def normalize_article_for_write(article: dict[str, Any]) -> dict[str, Any]:
+    normalized = dict(article)
+    normalized["is_long_form"] = bool(normalized.get("is_long_form"))
+    return normalized
+
+
 def upsert_article(article: dict[str, Any]) -> bool:
     with get_connection() as conn:
         cursor = conn.execute(
@@ -75,7 +81,7 @@ def upsert_article(article: dict[str, Any]) -> bool:
             ON CONFLICT (url) DO NOTHING
             RETURNING id
             """,
-            article,
+            normalize_article_for_write(article),
         )
         return cursor.fetchone() is not None
 
