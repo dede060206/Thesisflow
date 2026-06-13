@@ -17,7 +17,7 @@
     <div>
       <p class="eyebrow">Thesis Builder 工作区</p>
       <h1>{{ thesis.title }}</h1>
-      <p>{{ evidence | length }} / {{ max_evidence }} 条证据 · {{ thesis.status }}</p>
+      <p><span id="evidence-count">{{ evidence | length }}</span> / {{ max_evidence }} 条证据 · {{ thesis.status }}</p>
     </div>
     <div class="workspace-actions">
       <a class="ghost-link" href="/thesis-builder">返回列表</a>
@@ -40,16 +40,35 @@
       <section class="thesis-section thesis-draft-editor">
         <div class="thesis-section-head">
           <div><p class="eyebrow">AI Thesis Draft</p><h2>投资论点初稿</h2></div>
-          <button class="ghost-link button-reset" id="regenerate-all" type="button">重新生成全部</button>
+          <div class="section-actions">
+            <button class="research-section-evidence" id="refresh-thesis-research" type="button">补充外部研究</button>
+            <button class="ghost-link button-reset" id="regenerate-all" type="button">重新生成全部</button>
+          </div>
         </div>
         <p class="action-status" id="generate-status"></p>
         <div class="editable-thesis-sections">
           {% for key in section_keys %}
             {% set section = sections[key] %}
+            {% set section_coverage = coverage[key] %}
             <article class="editable-thesis-section" data-section="{{ key }}">
               <div class="editable-section-head">
                 <h3>{{ labels[key] }}</h3>
-                <button type="button" class="regenerate-section" data-section="{{ key }}">仅重新生成本节</button>
+                <div class="section-actions">
+                  <button type="button" class="research-section-evidence" data-section="{{ key }}">为本节搜索证据</button>
+                  <button type="button" class="regenerate-section" data-section="{{ key }}">仅重新生成本节</button>
+                </div>
+              </div>
+              <div class="section-coverage coverage-{{ section_coverage.status }}" data-section-coverage="{{ key }}">
+                <div>
+                  <span>{% if section_coverage.status == 'sufficient' %}证据充分{% elif section_coverage.status == 'limited' %}证据有限{% else %}证据不足{% endif %}</span>
+                  <p>{{ section_coverage.reason }}</p>
+                </div>
+                <div class="coverage-metrics">
+                  <small>内部 {{ section_coverage.internal_count }}</small>
+                  <small>网络 {{ section_coverage.web_count }}</small>
+                  <small>独有 {{ section_coverage.unique_count }}</small>
+                  <small>重复率 {{ (section_coverage.repeat_rate * 100) | int }}%</small>
+                </div>
               </div>
               <textarea rows="{% if key in ['core_claim', 'why_now', 'open_questions'] %}5{% else %}7{% endif %}" data-section-content="{{ key }}">{{ section.content }}</textarea>
               <div class="section-evidence-refs" data-section-refs="{{ key }}">
@@ -67,26 +86,47 @@
         <form id="evidence-research-form">
           <textarea id="evidence-research-query" rows="3" maxlength="1500" placeholder="例如：寻找支持 Agent 基础设施价值向身份、权限和审计迁移的证据。" required></textarea>
           <div class="chat-actions">
-            <span id="evidence-research-status">搜索现有文章、投资信号、周度信号和已保存公司研究</span>
+            <span id="evidence-research-status">搜索 Thesisflow 数据与外部网络来源</span>
             <button type="submit">研究证据</button>
           </div>
         </form>
         <div class="evidence-candidate-grid" id="evidence-candidates"></div>
       </section>
 
-      <details class="thesis-section legacy-memo-section">
-        <summary>现有投资备忘录功能</summary>
+      <section class="thesis-section investment-memo-workspace">
         <div class="thesis-section-head">
-          <p class="muted-copy">保留旧功能以兼容已有 Thesis。</p>
-          <button class="source-link button-reset" id="generate-memo" type="button">生成 / 重新生成 Memo</button>
+          <div>
+            <p class="eyebrow">Investment Memo</p>
+            <h2>投资备忘录</h2>
+          </div>
+          <button class="source-link button-reset" id="generate-memo" type="button">{% if thesis.investment_memo %}重新生成 Memo{% else %}生成 Investment Memo{% endif %}</button>
         </div>
-        <p class="action-status" id="memo-status"></p>
-        {% if thesis.investment_memo %}<pre class="memo-output">{{ thesis.investment_memo }}</pre>{% endif %}
-      </details>
+        <p class="muted-copy">融合当前 Thesis 的九个章节及其实际引用证据，生成一份完整的投资人备忘录。</p>
+        <p class="action-status" id="memo-status">{% if thesis.investment_memo %}Memo 已生成，可继续编辑 Thesis 后重新生成。{% else %}生成通常需要约 20–60 秒，请保持页面打开。{% endif %}</p>
+        <div id="memo-result" {% if not thesis.investment_memo %}hidden{% endif %}>
+          <div class="memo-export-actions" id="memo-export-actions">
+            <a href="/theses/{{ thesis.id }}/export.md">下载 Markdown</a>
+            <a href="/theses/{{ thesis.id }}/export.txt">下载 TXT</a>
+            <a href="/theses/{{ thesis.id }}/export.docx">下载 Word</a>
+          </div>
+          <div class="memo-output" id="memo-output">{{ memo_display }}</div>
+        </div>
+      </section>
     </div>
 
     <aside class="evidence-sidebar">
-      <section class="saved-evidence">
+      <section class="evidence-search sidebar-evidence-search">
+        <p class="eyebrow">Article Evidence</p>
+        <h2>搜索并添加证据</h2>
+        <form id="sidebar-evidence-search-form">
+          <input id="sidebar-evidence-query" type="search" minlength="2" placeholder="输入文章标题、关键词或投资机构" required>
+          <button type="submit">搜索</button>
+        </form>
+        <p class="action-status" id="sidebar-evidence-search-status"></p>
+        <div id="sidebar-evidence-results"></div>
+      </section>
+
+      <section class="saved-evidence" id="saved-evidence-library">
         <p class="eyebrow">Evidence Library</p>
         <h2>证据库</h2>
         {% for item in evidence %}
@@ -95,16 +135,33 @@
               <span class="source-pill">E{{ item.id }} · {{ item.classification }}</span>
               <span class="meta">{{ item.evidence_state }}</span>
             </div>
-            <h3>{% if item.url %}<a href="{{ item.url }}" target="_blank" rel="noreferrer">{{ item.title }}</a>{% else %}{{ item.title }}{% endif %}</h3>
+            <div class="evidence-card-title">
+            <h3>
+              {% if item.article_id %}
+                <a href="/article/{{ item.article_id }}">{{ item.chinese_title }}</a>
+              {% elif item.url %}
+                <a href="{{ item.url }}" target="_blank" rel="noreferrer">{{ item.chinese_title }}</a>
+              {% else %}
+                {{ item.chinese_title }}
+              {% endif %}
+            </h3>
+            {% if item.original_title %}<p class="evidence-original-title">{{ item.original_title }}</p>{% endif %}
+            </div>
             <p class="meta">{{ item.evidence_type }} · {{ item.source or "Thesisflow" }}{% if item.published_at %} · {{ item.published_at }}{% endif %}</p>
-            <p>{{ item.excerpt[:420] }}{% if item.excerpt | length > 420 %}…{% endif %}</p>
-            {% if item.note %}<p class="evidence-relationship">{{ item.note }}</p>{% endif %}
+            {% if item.article_id and item.url %}<a class="evidence-original-link" href="{{ item.url }}" target="_blank" rel="noreferrer">查看原文 ↗</a>{% endif %}
+            {% if item.display_excerpt %}<p class="evidence-card-summary">{{ item.display_excerpt }}</p>{% endif %}
+            {% if item.importance %}
+              <div class="evidence-importance">
+                <span>为什么重要</span>
+                <p>{{ item.importance }}</p>
+              </div>
+            {% endif %}
             <div class="evidence-score-row">
               <span>强度 {{ item.strength }}</span><span>可信度 {{ item.source_credibility }}</span><span>{{ item.ai_recommendation }}</span>
             </div>
             <button class="delete-evidence" data-evidence-id="{{ item.id }}">删除</button>
           </article>
-        {% else %}<p class="muted-copy">尚未添加证据。</p>{% endfor %}
+        {% else %}<p class="muted-copy" id="empty-evidence-library">尚未添加证据。</p>{% endfor %}
       </section>
     </aside>
   </section>
@@ -114,8 +171,56 @@
   const thesisId = {{ thesis.id }};
   const sectionKeys = {{ section_keys | tojson }};
   let sectionEvidenceIds = {{ sections | tojson }};
+  let sectionCoverage = {{ coverage | tojson }};
   let evidenceCandidates = new Map();
   const escapeHtml = (value) => { const el = document.createElement("div"); el.textContent = value || ""; return el.innerHTML; };
+
+  function evidenceCard(item) {
+    const articleUrl = item.article_id ? `/article/${item.article_id}` : item.url;
+    const externalAttrs = item.article_id ? "" : ' target="_blank" rel="noreferrer"';
+    const chineseTitle = item.chinese_title || item.title;
+    const originalTitle = item.original_title || "";
+    const title = articleUrl
+      ? `<a href="${escapeHtml(articleUrl)}"${externalAttrs}>${escapeHtml(chineseTitle)}</a>`
+      : escapeHtml(chineseTitle);
+    const originalLink = item.article_id && item.url
+      ? `<a class="evidence-original-link" href="${escapeHtml(item.url)}" target="_blank" rel="noreferrer">查看原文 ↗</a>`
+      : "";
+    const excerpt = item.display_excerpt || item.excerpt || "";
+    const importance = item.importance || item.note || "";
+    return `<article class="evidence-card evidence-${escapeHtml((item.classification || "CONTEXT").toLowerCase())}" id="evidence-${item.id}">
+      <div class="card-top"><span class="source-pill">E${item.id} · ${escapeHtml(item.classification || "CONTEXT")}</span><span class="meta">${escapeHtml(item.evidence_state || "added")}</span></div>
+      <div class="evidence-card-title"><h3>${title}</h3>${originalTitle ? `<p class="evidence-original-title">${escapeHtml(originalTitle)}</p>` : ""}</div>
+      <p class="meta">${escapeHtml(item.evidence_type || "evidence")} · ${escapeHtml(item.source || "Thesisflow")}${item.published_at ? ` · ${escapeHtml(item.published_at)}` : ""}</p>
+      ${originalLink}
+      ${excerpt ? `<p class="evidence-card-summary">${escapeHtml(excerpt)}</p>` : ""}
+      ${importance ? `<div class="evidence-importance"><span>为什么重要</span><p>${escapeHtml(importance)}</p></div>` : ""}
+      <div class="evidence-score-row"><span>强度 ${escapeHtml(item.strength || "medium")}</span><span>可信度 ${escapeHtml(item.source_credibility || "medium")}</span><span>${escapeHtml(item.ai_recommendation || "consider")}</span></div>
+      <button class="delete-evidence" data-evidence-id="${item.id}">删除</button>
+    </article>`;
+  }
+
+  function appendEvidence(items) {
+    if (!items || !items.length) return;
+    const library = document.getElementById("saved-evidence-library");
+    document.getElementById("empty-evidence-library")?.remove();
+    items.forEach((item) => {
+      if (!document.getElementById(`evidence-${item.id}`)) {
+        library.insertAdjacentHTML("beforeend", evidenceCard(item));
+      }
+    });
+    document.getElementById("evidence-count").textContent = library.querySelectorAll(".evidence-card").length;
+  }
+
+  function updateCoverage(key, coverage) {
+    if (!coverage) return;
+    sectionCoverage[key] = coverage;
+    const container = document.querySelector(`[data-section-coverage="${key}"]`);
+    const labels = {sufficient: "证据充分", limited: "证据有限", insufficient: "证据不足"};
+    container.className = `section-coverage coverage-${coverage.status}`;
+    container.innerHTML = `<div><span>${labels[coverage.status] || "证据状态"}</span><p>${escapeHtml(coverage.reason || "")}</p></div>
+      <div class="coverage-metrics"><small>内部 ${coverage.internal_count || 0}</small><small>网络 ${coverage.web_count || 0}</small><small>独有 ${coverage.unique_count || 0}</small><small>重复率 ${Math.round((coverage.repeat_rate || 0) * 100)}%</small></div>`;
+  }
 
   function collectSections() {
     const output = {};
@@ -146,20 +251,25 @@
       body: JSON.stringify({sections: collectSections()})
     });
     status.textContent = metadata.ok && sections.ok ? "整个 Thesis 已更新" : "保存失败，请检查输入";
+    return metadata.ok && sections.ok;
   }
   document.getElementById("save-workspace").addEventListener("click", saveWorkspace);
 
   async function regenerateSection(key, button) {
     button.disabled = true;
     button.textContent = "生成中...";
+    const saved = await saveWorkspace();
+    if (!saved) { button.disabled = false; button.textContent = "仅重新生成本节"; return; }
     const response = await fetch(`/api/theses/${thesisId}/sections/${key}/regenerate`, {method: "POST"});
     const data = await response.json();
     if (response.ok) {
+      appendEvidence(data.added_evidence || []);
       document.querySelector(`[data-section-content="${key}"]`).value = data.section.content;
       sectionEvidenceIds[key] = data.section;
+      updateCoverage(key, data.coverage);
       document.querySelector(`[data-section-refs="${key}"]`).innerHTML = data.section.evidence_ids.map((id) => `<a href="#evidence-${id}">[E${id}]</a>`).join(" ");
     } else {
-      document.getElementById("generate-status").textContent = data.detail || "生成失败";
+      document.getElementById("generate-status").textContent = `“${button.closest('.editable-thesis-section').querySelector('h3').textContent}”未生成：${data.detail || "证据不足"}`;
     }
     button.disabled = false;
     button.textContent = "仅重新生成本节";
@@ -168,24 +278,119 @@
   document.getElementById("regenerate-all").addEventListener("click", async () => {
     const status = document.getElementById("generate-status");
     status.textContent = "正在根据证据重新生成全部章节...";
+    if (!await saveWorkspace()) { status.textContent = "保存当前编辑内容失败，未开始生成"; return; }
     const response = await fetch(`/api/theses/${thesisId}/generate`, {method: "POST"});
     const data = await response.json();
     if (!response.ok) { status.textContent = data.detail || "生成失败"; return; }
-    window.location.reload();
+    sectionEvidenceIds = data.sections;
+    sectionKeys.forEach((key) => {
+      document.querySelector(`[data-section-content="${key}"]`).value = data.sections[key].content;
+      document.querySelector(`[data-section-refs="${key}"]`).innerHTML = data.sections[key].evidence_ids.map((id) => `<a href="#evidence-${id}">[E${id}]</a>`).join(" ");
+      updateCoverage(key, data.coverage[key]);
+    });
+    status.textContent = "已根据当前证据库重新生成全部章节";
+  });
+
+  document.getElementById("refresh-thesis-research").addEventListener("click", async () => {
+    const button = document.getElementById("refresh-thesis-research");
+    const status = document.getElementById("generate-status");
+    button.disabled = true;
+    button.textContent = "研究中...";
+    status.textContent = "正在按章节搜索数据库和外部网络，并抓取可验证的网页正文...";
+    try {
+      const response = await fetch(`/api/theses/${thesisId}/research/refresh`, {method: "POST"});
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.detail || "补充研究失败");
+      appendEvidence(data.added || []);
+      sectionKeys.forEach((key) => updateCoverage(key, data.coverage[key]));
+      status.textContent = data.added.length
+        ? `新增 ${data.added.length} 条证据。请检查证据库后点击“重新生成全部”。`
+        : "当前证据库已达到研究容量，或没有找到新的合格来源。";
+    } catch (error) {
+      status.textContent = error.message || "补充研究失败";
+    } finally {
+      button.disabled = false;
+      button.textContent = "补充外部研究";
+    }
+  });
+
+  document.getElementById("sidebar-evidence-search-form").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const query = document.getElementById("sidebar-evidence-query").value.trim();
+    const status = document.getElementById("sidebar-evidence-search-status");
+    const container = document.getElementById("sidebar-evidence-results");
+    status.textContent = "正在搜索 Thesisflow 文章...";
+    container.innerHTML = "";
+    const response = await fetch(`/api/theses/${thesisId}/evidence/search?q=${encodeURIComponent(query)}`);
+    const articles = await response.json();
+    if (!response.ok) { status.textContent = articles.detail || "搜索失败"; return; }
+    container.innerHTML = articles.map((article) => `<article class="evidence-result">
+      <div>
+        <a class="evidence-result-title" href="/article/${article.id}">${escapeHtml(article.title)}</a>
+        <small>${escapeHtml(article.source || "Thesisflow")}${article.published_at ? ` · ${escapeHtml(article.published_at)}` : ""}</small>
+        ${article.summary ? `<p>${escapeHtml(article.summary.slice(0, 180))}${article.summary.length > 180 ? "…" : ""}</p>` : ""}
+      </div>
+      <button type="button" data-article-id="${article.id}">添加</button>
+    </article>`).join("") || '<p class="muted-copy">没有找到匹配的文章证据。</p>';
+    status.textContent = `找到 ${articles.length} 篇相关文章`;
+  });
+
+  document.getElementById("sidebar-evidence-results").addEventListener("click", async (event) => {
+    const button = event.target.closest("button[data-article-id]");
+    if (!button) return;
+    button.disabled = true;
+    button.textContent = "添加中...";
+    const response = await fetch(`/api/theses/${thesisId}/evidence/articles`, {
+      method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({article_ids: [Number(button.dataset.articleId)]})
+    });
+    if (response.ok) {
+      button.textContent = "已添加";
+      const data = await response.json();
+      appendEvidence(data.added || []);
+    } else {
+      const data = await response.json();
+      button.textContent = data.detail || "添加失败";
+      button.disabled = false;
+    }
   });
 
   function candidateCard(item) {
     evidenceCandidates.set(item.ref, item);
+    const articleId = item.metadata && item.metadata.article_id;
+    const primaryUrl = articleId ? `/article/${articleId}` : item.url;
     return `<article class="evidence-candidate" data-candidate-ref="${escapeHtml(item.ref)}">
       <div class="card-top"><span class="source-pill">${escapeHtml(item.classification)}</span><span class="meta">${escapeHtml(item.evidence_type)}</span></div>
-      <h3>${item.url ? `<a href="${escapeHtml(item.url)}" target="_blank" rel="noreferrer">${escapeHtml(item.title)}</a>` : escapeHtml(item.title)}</h3>
+      <h3>${primaryUrl ? `<a href="${escapeHtml(primaryUrl)}"${articleId ? "" : ' target="_blank" rel="noreferrer"'}>${escapeHtml(item.title)}</a>` : escapeHtml(item.title)}</h3>
       <p class="meta">${escapeHtml(item.source)}${item.published_at ? ` · ${escapeHtml(item.published_at)}` : ""}</p>
+      ${articleId && item.url ? `<a class="evidence-original-link" href="${escapeHtml(item.url)}" target="_blank" rel="noreferrer">查看原文 ↗</a>` : ""}
       <p>${escapeHtml(item.excerpt.slice(0, 520))}</p>
       <p class="evidence-relationship"><strong>与论点的关系：</strong>${escapeHtml(item.relationship_explanation || "需要人工判断")}</p>
       <div class="evidence-score-row"><span>强度 ${escapeHtml(item.strength)}</span><span>可信度 ${escapeHtml(item.source_credibility)}</span><span>${escapeHtml(item.ai_recommendation)}</span></div>
       <div class="candidate-actions"><button data-action="add">加入 Thesis</button><button data-action="later">稍后保存</button><button data-action="reject">拒绝</button></div>
     </article>`;
   }
+
+  document.querySelectorAll(".research-section-evidence").forEach((button) => button.addEventListener("click", async () => {
+    const key = button.dataset.section;
+    const status = document.getElementById("evidence-research-status");
+    const container = document.getElementById("evidence-candidates");
+    button.disabled = true;
+    button.textContent = "搜索中...";
+    status.textContent = `正在为“${button.closest('.editable-thesis-section').querySelector('h3').textContent}”搜索数据库和网络证据...`;
+    const response = await fetch(`/api/theses/${thesisId}/sections/${key}/evidence/research`, {method: "POST"});
+    const data = await response.json();
+    if (response.ok) {
+      evidenceCandidates = new Map();
+      container.innerHTML = data.evidence.map(candidateCard).join("") || '<p class="muted-copy">没有找到足够相关的证据。</p>';
+      status.textContent = `为本节找到 ${data.evidence.length} 条候选证据，请选择加入 Thesis`;
+      document.querySelector(".evidence-research-workspace").scrollIntoView({behavior: "smooth", block: "start"});
+    } else {
+      status.textContent = data.detail || "本节证据搜索失败";
+    }
+    button.disabled = false;
+    button.textContent = "为本节搜索证据";
+  }));
 
   document.getElementById("evidence-research-form").addEventListener("submit", async (event) => {
     event.preventDefault();
@@ -200,7 +405,7 @@
     const data = await response.json();
     if (!response.ok) { status.textContent = data.detail || "研究失败"; return; }
     evidenceCandidates = new Map();
-    container.innerHTML = data.evidence.map(candidateCard).join("") || '<p class="muted-copy">没有找到足够相关的内部证据。</p>';
+    container.innerHTML = data.evidence.map(candidateCard).join("") || '<p class="muted-copy">没有找到足够相关的数据库或网络证据。</p>';
     status.textContent = `找到 ${data.evidence.length} 条候选证据`;
   });
 
@@ -215,21 +420,51 @@
       method: "POST", headers: {"Content-Type": "application/json"},
       body: JSON.stringify({...item, evidence_state: button.dataset.action === "later" ? "saved_for_later" : "added"})
     });
-    button.textContent = response.ok ? (button.dataset.action === "later" ? "已保存" : "已加入") : "操作失败";
-    if (response.ok) setTimeout(() => window.location.reload(), 450);
+    if (response.ok) {
+      const data = await response.json();
+      appendEvidence([data.evidence]);
+      button.textContent = button.dataset.action === "later" ? "已保存" : "已加入";
+      card.classList.add("evidence-candidate-complete");
+    } else {
+      button.textContent = "操作失败";
+      button.disabled = false;
+    }
   });
 
-  document.querySelectorAll(".delete-evidence").forEach((button) => button.addEventListener("click", async () => {
+  document.getElementById("saved-evidence-library").addEventListener("click", async (event) => {
+    const button = event.target.closest(".delete-evidence");
+    if (!button) return;
     const response = await fetch(`/api/theses/${thesisId}/evidence/${button.dataset.evidenceId}`, {method: "DELETE"});
-    if (response.ok) window.location.reload();
-  }));
+    if (response.ok) {
+      button.closest(".evidence-card").remove();
+      const library = document.getElementById("saved-evidence-library");
+      const count = library.querySelectorAll(".evidence-card").length;
+      document.getElementById("evidence-count").textContent = count;
+      if (!count) library.insertAdjacentHTML("beforeend", '<p class="muted-copy" id="empty-evidence-library">尚未添加证据。</p>');
+    }
+  });
 
   document.getElementById("generate-memo").addEventListener("click", async () => {
     const status = document.getElementById("memo-status");
-    status.textContent = "正在生成投资备忘录...";
-    const response = await fetch(`/api/theses/${thesisId}/memo`, {method: "POST"});
-    const data = await response.json();
-    if (response.ok) window.location.reload(); else status.textContent = data.detail || "生成失败";
+    const button = document.getElementById("generate-memo");
+    button.disabled = true;
+    button.textContent = "正在生成...";
+    status.textContent = "正在阅读 Thesis 章节和引用证据，生成完整投资备忘录...";
+    try {
+      if (!await saveWorkspace()) throw new Error("保存当前 Thesis 失败");
+      const response = await fetch(`/api/theses/${thesisId}/memo`, {method: "POST"});
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.detail || "生成失败");
+      document.getElementById("memo-output").textContent = data.memo;
+      document.getElementById("memo-result").hidden = false;
+      status.textContent = "Investment Memo 已生成，可以下载 Markdown、TXT 或 Word 文件。";
+      button.textContent = "重新生成 Memo";
+    } catch (error) {
+      status.textContent = error.message || "Investment Memo 生成失败";
+      button.textContent = "重新生成 Memo";
+    } finally {
+      button.disabled = false;
+    }
   });
 </script>
 {% else %}<p class="empty">Thesis 不存在，或不属于当前浏览器 workspace。</p>{% endif %}

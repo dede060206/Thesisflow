@@ -1689,6 +1689,63 @@ code {
   font-weight: 500;
 }
 
+.section-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 7px;
+}
+
+.research-section-evidence {
+  padding: 7px 10px;
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  color: var(--ink);
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.section-coverage {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 9px;
+  margin: 0 0 10px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+}
+
+.section-coverage span {
+  flex: 0 0 auto;
+  font-weight: 800;
+}
+
+.section-coverage p {
+  margin: 0;
+}
+
+.coverage-metrics {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 5px;
+}
+
+.coverage-metrics small {
+  padding: 2px 6px;
+  background: rgba(255, 255, 255, 0.55);
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+.coverage-sufficient { background: #edf3ec; color: #405d45; }
+.coverage-limited { background: #f5efe4; color: #765d35; }
+.coverage-insufficient { background: #f7eae6; color: #8a493b; }
+
 .button-reset {
   border: 0;
   cursor: pointer;
@@ -1730,10 +1787,27 @@ code {
   border: 1px solid var(--line);
   border-radius: 7px;
   color: #332f2a;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 13px;
-  line-height: 1.65;
+  font-family: Georgia, "Songti SC", "STSong", serif;
+  font-size: 15px;
+  line-height: 1.85;
   white-space: pre-wrap;
+}
+
+.memo-export-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 12px 0;
+}
+
+.memo-export-actions a {
+  padding: 8px 11px;
+  background: var(--accent-dark);
+  border-radius: 7px;
+  color: var(--surface);
+  font-size: 13px;
+  font-weight: 700;
+  text-decoration: none;
 }
 
 .evidence-search form {
@@ -1756,7 +1830,8 @@ code {
   font-weight: 700;
 }
 
-#evidence-results {
+#evidence-results,
+#sidebar-evidence-results {
   display: grid;
   gap: 8px;
   margin-top: 12px;
@@ -1772,7 +1847,29 @@ code {
 }
 
 .evidence-result small {
+  display: block;
+  margin-top: 4px;
   color: var(--muted);
+}
+
+.evidence-result p {
+  margin: 7px 0 0;
+  color: #514a42;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.evidence-result-title {
+  color: var(--ink);
+  font-weight: 700;
+  line-height: 1.35;
+  text-decoration: none;
+}
+
+.evidence-result-title:hover,
+.evidence-original-link:hover {
+  color: var(--accent-dark);
+  text-decoration: underline;
 }
 
 .evidence-result button {
@@ -1786,16 +1883,82 @@ code {
 }
 
 .evidence-card {
-  padding: 14px;
+  padding: 17px;
   background: #fffefa;
   border: 1px solid var(--line);
   border-radius: 7px;
 }
 
 .evidence-card h3 {
-  margin: 0 0 7px;
-  font-size: 16px;
-  line-height: 1.35;
+  margin: 0;
+  font-family: Georgia, "Songti SC", serif;
+  font-size: 19px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.evidence-card-title {
+  margin: 10px 0 8px;
+}
+
+.evidence-card-title h3 a {
+  color: var(--ink);
+  text-decoration: none;
+}
+
+.evidence-original-title {
+  margin: 5px 0 0 !important;
+  color: var(--muted);
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 12px !important;
+  line-height: 1.4;
+}
+
+.evidence-card-summary {
+  margin: 12px 0 !important;
+  color: #403a34;
+  font-size: 13px !important;
+  line-height: 1.65;
+}
+
+.evidence-importance {
+  margin: 13px 0;
+  padding: 12px 13px;
+  background: #f3e8db;
+  border-radius: 7px;
+  color: #523b2d;
+}
+
+.evidence-importance span {
+  display: block;
+  margin-bottom: 5px;
+  color: var(--accent-dark);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+}
+
+.evidence-importance p {
+  margin: 0 !important;
+  font-size: 13px !important;
+  line-height: 1.6;
+}
+
+.evidence-original-link {
+  display: inline-block;
+  margin: 0 0 8px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.evidence-candidate-complete {
+  opacity: 0.68;
+}
+
+.evidence-candidate-complete .candidate-actions button:not(:disabled) {
+  pointer-events: none;
 }
 
 .evidence-card p {

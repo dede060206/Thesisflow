@@ -846,9 +846,23 @@ def list_thesis_evidence(
     with get_connection() as conn:
         return conn.execute(
             """
-            SELECT e.*
+            SELECT e.*,
+                   CASE
+                     WHEN e.article_id IS NOT NULL THEN CONCAT_WS(
+                       E'\n\n',
+                       CASE WHEN COALESCE(a.summary, '') <> '' THEN 'ARTICLE SUMMARY' || E'\n' || a.summary END,
+                       CASE WHEN COALESCE(a.content, '') <> '' THEN 'SOURCE CONTENT' || E'\n' || LEFT(a.content, 7000) END
+                     )
+                     WHEN COALESCE(e.full_content, '') <> '' THEN CONCAT_WS(
+                       E'\n\n',
+                       CASE WHEN COALESCE(e.excerpt, '') <> '' THEN 'RESEARCH FINDING' || E'\n' || e.excerpt END,
+                       'SOURCE CONTENT' || E'\n' || LEFT(e.full_content, 12000)
+                     )
+                     ELSE e.excerpt
+                   END AS generation_excerpt
             FROM thesis_evidence e
             JOIN investment_theses t ON t.id = e.thesis_id
+            LEFT JOIN articles a ON a.id = e.article_id
             WHERE e.thesis_id = %s AND t.workspace_id = %s
             ORDER BY e.created_at
             """,
@@ -916,7 +930,14 @@ def add_article_evidence(
         ).fetchone()
         if not article:
             return None
-        excerpt = article["summary"] or (article["content"] or "")[:3000]
+        summary = (article["summary"] or "").strip()
+        content = (article["content"] or "").strip()
+        excerpt = "\n\n".join(
+            part for part in (
+                f"ARTICLE SUMMARY\n{summary}" if summary else "",
+                f"SOURCE CONTENT\n{content[:7000]}" if content else "",
+            ) if part
+        )
         return conn.execute(
             """
             INSERT INTO thesis_evidence (
@@ -957,6 +978,10 @@ def add_snapshot_evidence(
     source_credibility: str = "medium",
     ai_recommendation: str = "consider",
     evidence_state: str = "added",
+    canonical_url: str | None = None,
+    full_content: str | None = None,
+    content_word_count: int | None = None,
+    extraction_status: str | None = None,
 ) -> dict[str, Any] | None:
     with get_connection() as conn:
         thesis = conn.execute(
@@ -970,9 +995,11 @@ def add_snapshot_evidence(
             INSERT INTO thesis_evidence (
                 thesis_id, evidence_type, title, source, url, excerpt, note,
                 metadata, classification, strength, source_credibility,
-                ai_recommendation, evidence_state
+                ai_recommendation, evidence_state, canonical_url, full_content,
+                content_word_count, extraction_status, fetched_at
             )
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                    %s, %s, %s, %s, CASE WHEN %s IS NOT NULL THEN NOW() END)
             RETURNING *
             """,
             (
@@ -989,6 +1016,11 @@ def add_snapshot_evidence(
                 source_credibility,
                 ai_recommendation,
                 evidence_state,
+                canonical_url,
+                full_content,
+                content_word_count,
+                extraction_status,
+                extraction_status,
             ),
         ).fetchone()
 

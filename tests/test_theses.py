@@ -85,7 +85,7 @@ def test_thesis_pages_render() -> None:
     assert detail.status_code == 200
     assert "投资论点初稿" in detail.text
     assert "证据研究工作区" in detail.text
-    assert "现有投资备忘录功能" in detail.text
+    assert "投资备忘录" in detail.text
 
 
 def test_thesis_detail_denies_unknown_workspace_thesis() -> None:

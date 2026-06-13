@@ -1,14 +1,29 @@
 from __future__ import annotations
 
 import json
+import base64
+import hashlib
+import hmac
+import ipaddress
+import socket
 from dataclasses import asdict, dataclass, field
 from typing import Any, Protocol
+from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
+import httpx
+from bs4 import BeautifulSoup
 from openai import OpenAI
 
 from app.chat import retrieve_chunks, serialize_date
 from app.compare import parse_json_response
-from app.config import OPENAI_API_KEY, THESIS_MODEL
+from app.company_research import extract_external_sources
+from app.config import (
+    OPENAI_API_KEY,
+    THESIS_MODEL,
+    THESIS_WEB_CONTENT_WORDS,
+    THESIS_WEB_FETCH_TIMEOUT,
+    WORKSPACE_SECRET,
+)
 from app.database import (
     add_article_evidence,
     add_snapshot_evidence,
@@ -19,11 +34,18 @@ from app.database import (
     list_company_research_evidence,
     update_article_evidence_attributes,
 )
+from app.fetcher import extract_page_content, extract_page_date, extract_page_title, word_count
 
 
 RELATIONSHIPS = {"SUPPORTING", "COUNTER", "CONTEXT"}
 LEVELS = {"high", "medium", "low"}
 RECOMMENDATIONS = {"prioritise", "consider", "low_priority"}
+PROVIDER_QUOTAS = {
+    "ArticleEvidenceProvider": 8,
+    "WeeklySignalEvidenceProvider": 2,
+    "CompanyResearchEvidenceProvider": 2,
+    "ExternalWebEvidenceProvider": 8,
+}
 
 
 @dataclass
@@ -143,10 +165,199 @@ class CompanyResearchEvidenceProvider:
         ]
 
 
+def _web_candidate_token(candidate: EvidenceCandidate, workspace_id: str) -> str:
+    payload = json.dumps(
+        {
+            "evidence_type": "web",
+            "title": candidate.title,
+            "source": candidate.source,
+            "url": candidate.url,
+            "published_at": candidate.published_at,
+            "excerpt": candidate.excerpt[:2400],
+            "source_credibility": candidate.source_credibility,
+        },
+        ensure_ascii=False,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    signature = hmac.new(
+        WORKSPACE_SECRET.encode("utf-8"), workspace_id.encode("utf-8") + payload, hashlib.sha256
+    ).digest()
+    return base64.urlsafe_b64encode(signature + payload).decode("ascii").rstrip("=")
+
+
+def _resolve_web_candidate(token: str, workspace_id: str) -> EvidenceCandidate | None:
+    try:
+        raw = base64.urlsafe_b64decode(token + "=" * (-len(token) % 4))
+        signature, payload = raw[:32], raw[32:]
+        expected = hmac.new(
+            WORKSPACE_SECRET.encode("utf-8"), workspace_id.encode("utf-8") + payload, hashlib.sha256
+        ).digest()
+        if not hmac.compare_digest(signature, expected):
+            return None
+        item = json.loads(payload.decode("utf-8"))
+        url = str(item.get("url") or "")
+        if not url.startswith(("https://", "http://")):
+            return None
+        return EvidenceCandidate(
+            ref=f"web:{token}",
+            evidence_type="web",
+            title=str(item.get("title") or url),
+            source=str(item.get("source") or urlparse(url).netloc),
+            url=url,
+            published_at=item.get("published_at"),
+            excerpt=str(item.get("excerpt") or "")[:2400],
+            metadata={"external_web": True},
+            source_credibility=(
+                item.get("source_credibility")
+                if item.get("source_credibility") in LEVELS
+                else "medium"
+            ),
+        )
+    except (ValueError, TypeError, json.JSONDecodeError):
+        return None
+
+
+class ExternalWebEvidenceProvider:
+    def search(self, query: str, workspace_id: str) -> list[EvidenceCandidate]:
+        if not OPENAI_API_KEY:
+            return []
+        client = OpenAI(api_key=OPENAI_API_KEY)
+        response = client.responses.create(
+            model=THESIS_MODEL,
+            tools=[{"type": "web_search", "search_context_size": "medium"}],
+            include=["web_search_call.action.sources"],
+            input=[
+                {
+                    "role": "system",
+                    "content": (
+                        "Find credible, decision-useful evidence for venture investment research. "
+                        "Prioritize official company sources, primary research, regulatory filings, "
+                        "reputable reporting, and established investor analysis. Return valid JSON "
+                        "only. Never invent a URL, quote, date, or fact."
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": (
+                        f"Research question: {query}\n\nSearch the web and return up to 8 distinct "
+                        "sources. Use each source URL exactly as returned by web search. Return: "
+                        '{"results":[{"title":"","source":"","url":"https://...",'
+                        '"published_at":"YYYY-MM-DD or empty","excerpt":"specific sourced finding"}]}'
+                    ),
+                },
+            ],
+        )
+        allowed_sources = {
+            _canonical_url(item["url"]): item for item in extract_external_sources(response)
+        }
+        generated = parse_json_response(response.output_text).get("results") or []
+        candidates = []
+        for item in generated:
+            if not isinstance(item, dict):
+                continue
+            canonical_url = _canonical_url(str(item.get("url") or ""))
+            source_item = allowed_sources.get(canonical_url)
+            if not source_item:
+                continue
+            url = source_item["url"]
+            candidate = EvidenceCandidate(
+                ref="",
+                evidence_type="web",
+                title=str(item.get("title") or source_item.get("title") or url),
+                source=str(item.get("source") or urlparse(url).netloc),
+                url=url,
+                published_at=str(item.get("published_at") or "") or None,
+                excerpt=str(item.get("excerpt") or "")[:2400],
+                metadata={"external_web": True},
+                source_credibility="medium",
+            )
+            if not candidate.excerpt:
+                continue
+            candidate.ref = f"web:{_web_candidate_token(candidate, workspace_id)}"
+            candidates.append(candidate)
+        return candidates[:8]
+
+
+def _canonical_url(url: str) -> str:
+    if not url.startswith(("https://", "http://")):
+        return ""
+    parsed = urlparse(url)
+    query = urlencode(
+        [
+            (key, value)
+            for key, value in parse_qsl(parsed.query, keep_blank_values=True)
+            if not key.lower().startswith("utm_") and key.lower() not in {"ref", "source"}
+        ]
+    )
+    return urlunparse(
+        (parsed.scheme.lower(), parsed.netloc.lower(), parsed.path.rstrip("/"), "", query, "")
+    )
+
+
+def _public_web_url(url: str) -> bool:
+    parsed = urlparse(url)
+    if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+        return False
+    if parsed.username or parsed.password or parsed.port not in {None, 80, 443}:
+        return False
+    try:
+        addresses = socket.getaddrinfo(parsed.hostname, None)
+    except socket.gaierror:
+        return False
+    for address in addresses:
+        ip = ipaddress.ip_address(address[4][0])
+        if not ip.is_global:
+            return False
+    return True
+
+
+def fetch_external_evidence(url: str) -> dict[str, Any]:
+    current = url
+    try:
+        with httpx.Client(
+            timeout=THESIS_WEB_FETCH_TIMEOUT,
+            headers={"User-Agent": "ThesisflowResearch/1.0"},
+            follow_redirects=False,
+        ) as client:
+            for _ in range(4):
+                if not _public_web_url(current):
+                    return {"status": "blocked_url", "content": ""}
+                response = client.get(current)
+                if response.is_redirect:
+                    location = response.headers.get("location")
+                    if not location:
+                        return {"status": "redirect_without_location", "content": ""}
+                    current = str(response.url.join(location))
+                    continue
+                response.raise_for_status()
+                content_type = response.headers.get("content-type", "")
+                if "text/html" not in content_type:
+                    return {"status": "unsupported_content_type", "content": ""}
+                if len(response.content) > 5_000_000:
+                    return {"status": "response_too_large", "content": ""}
+                soup = BeautifulSoup(response.text, "html.parser")
+                content, _, failure = extract_page_content(soup, current)
+                words = content.split()
+                content = " ".join(words[:THESIS_WEB_CONTENT_WORDS])
+                return {
+                    "status": "extracted" if content else "extraction_failed",
+                    "content": content,
+                    "word_count": len(words[:THESIS_WEB_CONTENT_WORDS]),
+                    "title": extract_page_title(soup),
+                    "published_at": extract_page_date(soup),
+                    "canonical_url": _canonical_url(current),
+                    "failure_reason": failure,
+                }
+    except (httpx.HTTPError, ValueError) as exc:
+        return {"status": "fetch_failed", "content": "", "failure_reason": str(exc)}
+    return {"status": "too_many_redirects", "content": ""}
+
+
 DEFAULT_PROVIDERS: tuple[EvidenceProvider, ...] = (
     ArticleEvidenceProvider(),
     WeeklySignalEvidenceProvider(),
     CompanyResearchEvidenceProvider(),
+    ExternalWebEvidenceProvider(),
 )
 
 
@@ -175,8 +386,23 @@ def research_thesis_evidence(
 ) -> list[dict[str, Any]]:
     if not OPENAI_API_KEY:
         raise RuntimeError("OPENAI_API_KEY is required for evidence research.")
-    candidates = [item for provider in providers for item in provider.search(query, workspace_id)]
-    candidates = candidates[:24]
+    candidates = []
+    for provider in providers:
+        try:
+            provider_candidates = provider.search(query, workspace_id)
+            quota = PROVIDER_QUOTAS.get(provider.__class__.__name__, 6)
+            candidates.extend(provider_candidates[:quota])
+        except Exception as exc:
+            print(f"Evidence provider {provider.__class__.__name__} skipped: {exc}")
+    deduped = []
+    seen = set()
+    for candidate in candidates:
+        identity = _canonical_url(candidate.url or "") or candidate.ref
+        if identity in seen:
+            continue
+        seen.add(identity)
+        deduped.append(candidate)
+    candidates = deduped[:24]
     if not candidates:
         return []
     client = OpenAI(api_key=OPENAI_API_KEY)
@@ -274,6 +500,8 @@ def resolve_candidate(ref: str, workspace_id: str) -> EvidenceCandidate | None:
             metadata={"source_evidence_id": item["id"]},
             source_credibility=item.get("source_credibility") or "medium",
         )
+    if parts[0] == "web" and len(parts) == 2:
+        return _resolve_web_candidate(parts[1], workspace_id)
     if len(parts) == 4 and parts[0] == "weekly" and parts[1].isdigit() and parts[3].isdigit():
         weekly = get_weekly_market_report_by_id(int(parts[1]))
         if not weekly:
@@ -329,15 +557,28 @@ def add_candidate_to_thesis(
             note=relationship_explanation,
             **attributes,
         )
+    extraction = (
+        fetch_external_evidence(candidate.url)
+        if candidate.evidence_type == "web" and candidate.url
+        else {}
+    )
+    metadata = {
+        **candidate.metadata,
+        "extraction_failure_reason": extraction.get("failure_reason"),
+    }
     return add_snapshot_evidence(
         thesis_id,
         workspace_id,
         evidence_type=candidate.evidence_type,
-        title=candidate.title,
+        title=extraction.get("title") or candidate.title,
         excerpt=candidate.excerpt,
         source=candidate.source,
-        url=candidate.url,
+        url=extraction.get("canonical_url") or candidate.url,
         note=relationship_explanation,
-        metadata=candidate.metadata,
+        metadata=metadata,
+        canonical_url=extraction.get("canonical_url") or _canonical_url(candidate.url or "") or None,
+        full_content=extraction.get("content") or None,
+        content_word_count=extraction.get("word_count"),
+        extraction_status=extraction.get("status") if extraction else None,
         **attributes,
     )
