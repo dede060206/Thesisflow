@@ -3,30 +3,83 @@
 <section class="theses-shell">
   <header class="workspace-header">
     <div>
-      <p class="eyebrow">Investment research workspace</p>
-      <h1>投资论点</h1>
-      <p>把文章证据、机构观点和市场信号发展成可验证的投资判断。</p>
+      <p class="eyebrow">投资研究工作区</p>
+      <h1>Thesis Builder</h1>
+      <p>从一个投资领域开始，用 Thesisflow 的文章、信号和公司研究形成可验证的投资论点。</p>
     </div>
-    <a class="source-link" href="/theses/new">新建 Thesis</a>
+    <a class="ghost-link" href="/theses/new">手动创建</a>
   </header>
 
+  <section class="thesis-draft-launcher">
+    <div>
+      <p class="eyebrow">AI Thesis Draft</p>
+      <h2>生成一份可编辑的投资论点初稿</h2>
+    </div>
+    <form id="draft-thesis-form">
+      <label for="draft-domain">投资领域</label>
+      <input id="draft-domain" maxlength="200" placeholder="例如：AI Agent 基础设施" required>
+      <label for="draft-question">研究问题 <span>可选</span></label>
+      <textarea id="draft-question" maxlength="3000" rows="3" placeholder="例如：Agent 基础设施的价值是否会向身份、权限和审计迁移？"></textarea>
+      <label for="draft-view">初始观点 <span>可选</span></label>
+      <textarea id="draft-view" maxlength="3000" rows="3" placeholder="写下你目前相信的判断，AI 会用现有证据支持或挑战它。"></textarea>
+      <div class="chat-actions">
+        <span id="draft-status">生成时会自动检索并附上来源</span>
+        <button type="submit">生成 AI 初稿</button>
+      </div>
+    </form>
+  </section>
+
+  <div class="section-head thesis-list-head">
+    <p class="eyebrow">已保存工作区</p>
+    <h2>投资论点</h2>
+  </div>
   <section class="thesis-list">
     {% for thesis in theses %}
-      <a class="thesis-card" href="/theses/{{ thesis.id }}">
+      <a class="thesis-card" href="/thesis-builder/{{ thesis.id }}">
         <div class="card-top">
           <span class="source-pill">{{ thesis.status }}</span>
           <span class="meta">{{ thesis.evidence_count }} 条证据</span>
         </div>
         <h2>{{ thesis.title }}</h2>
+        {% if thesis.domain %}<p class="thesis-domain">{{ thesis.domain }}</p>{% endif %}
         <p>{{ thesis.core_claim }}</p>
         <small>更新于 {{ thesis.updated_at }}</small>
       </a>
     {% else %}
       <div class="empty">
         <p>还没有保存的投资论点。</p>
-        <a class="source-link" href="/theses/new">创建第一个 Thesis</a>
       </div>
     {% endfor %}
   </section>
 </section>
+
+<script>
+  const draftForm = document.getElementById("draft-thesis-form");
+  const draftStatus = document.getElementById("draft-status");
+  draftForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const button = draftForm.querySelector("button");
+    button.disabled = true;
+    button.textContent = "正在检索并生成...";
+    draftStatus.textContent = "正在搜索文章、周度信号和已保存公司研究...";
+    try {
+      const response = await fetch("/api/theses/draft", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({
+          domain: document.getElementById("draft-domain").value.trim(),
+          research_question: document.getElementById("draft-question").value.trim() || null,
+          initial_view: document.getElementById("draft-view").value.trim() || null
+        })
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.detail || "生成失败");
+      window.location.href = `/thesis-builder/${data.thesis.id}`;
+    } catch (error) {
+      draftStatus.textContent = error.message;
+      button.disabled = false;
+      button.textContent = "生成 AI 初稿";
+    }
+  });
+</script>
 {% endblock %}

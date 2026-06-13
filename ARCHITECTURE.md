@@ -177,6 +177,18 @@ The MVP limits each thesis to 20 evidence items and each workspace to 25 theses.
 There is no cross-device synchronization or recovery after the signed workspace
 cookie is deleted.
 
+The Thesis Builder MVP uses `/thesis-builder` as its primary workspace while
+retaining the legacy `/theses` routes. AI drafts contain nine independently
+editable sections. Draft generation and section regeneration can cite only
+evidence rows owned by the current anonymous workspace.
+
+Evidence Research uses a provider interface. The current providers search
+accepted article chunks, the latest weekly signal report, and company research
+already saved in the current workspace. Each candidate is classified as
+SUPPORTING, COUNTER, or CONTEXT and receives strength, source credibility, and
+priority metadata. External web search is intentionally not registered as a
+provider in this phase.
+
 ## Production Boundary
 
 The web app is intentionally read-heavy and request-scoped. Long network-bound

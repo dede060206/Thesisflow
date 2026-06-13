@@ -83,8 +83,9 @@ def test_thesis_pages_render() -> None:
     assert listing.status_code == 200
     assert "AI Agent Thesis" in listing.text
     assert detail.status_code == 200
-    assert "研究框架" in detail.text
-    assert "投资备忘录" in detail.text
+    assert "投资论点初稿" in detail.text
+    assert "证据研究工作区" in detail.text
+    assert "现有投资备忘录功能" in detail.text
 
 
 def test_thesis_detail_denies_unknown_workspace_thesis() -> None:
@@ -108,7 +109,7 @@ def test_normalize_sections_removes_fake_evidence_ids() -> None:
         [{"id": 11}],
     )
 
-    assert sections["supporting_evidence"][0]["evidence_ids"] == [11]
+    assert sections["supporting_evidence"]["evidence_ids"] == [11]
 
 
 def test_deterministic_sources_uses_verified_evidence_metadata() -> None:

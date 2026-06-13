@@ -15,7 +15,7 @@
       const response = await fetch("/api/theses");
       const theses = await response.json();
       if (!theses.length) {
-        status.innerHTML = '还没有 Thesis。<a href="/theses/new">先创建一个</a>';
+        status.innerHTML = '还没有 Thesis。<a href="/thesis-builder">先创建一个</a>';
         submit.disabled = true;
         return;
       }
@@ -52,6 +52,6 @@
       submit.disabled = false;
       return;
     }
-    status.innerHTML = `已保存。<a href="/theses/${select.value}">打开 Thesis</a>`;
+    status.innerHTML = `已保存。<a href="/thesis-builder/${select.value}">打开 Thesis</a>`;
   });
 })();

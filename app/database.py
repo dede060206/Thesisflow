@@ -767,16 +767,32 @@ def count_theses(workspace_id: str) -> int:
 
 
 def create_thesis(
-    workspace_id: str, title: str, core_claim: str
+    workspace_id: str,
+    title: str,
+    core_claim: str,
+    *,
+    domain: str | None = None,
+    research_question: str | None = None,
+    initial_view: str | None = None,
 ) -> dict[str, Any]:
     with get_connection() as conn:
         return conn.execute(
             """
-            INSERT INTO investment_theses (workspace_id, title, core_claim)
-            VALUES (%s, %s, %s)
+            INSERT INTO investment_theses (
+                workspace_id, title, core_claim, domain,
+                research_question, initial_view
+            )
+            VALUES (%s, %s, %s, %s, %s, %s)
             RETURNING *
             """,
-            (workspace_id, title, core_claim),
+            (
+                workspace_id,
+                title,
+                core_claim,
+                domain,
+                research_question,
+                initial_view,
+            ),
         ).fetchone()
 
 
@@ -798,16 +814,29 @@ def update_thesis(
     *,
     title: str,
     core_claim: str,
+    domain: str | None = None,
+    research_question: str | None = None,
+    initial_view: str | None = None,
 ) -> dict[str, Any] | None:
     with get_connection() as conn:
         return conn.execute(
             """
             UPDATE investment_theses
-            SET title = %s, core_claim = %s, updated_at = NOW()
+            SET title = %s, core_claim = %s, domain = %s,
+                research_question = %s, initial_view = %s,
+                updated_at = NOW()
             WHERE id = %s AND workspace_id = %s
             RETURNING *
             """,
-            (title, core_claim, thesis_id, workspace_id),
+            (
+                title,
+                core_claim,
+                domain,
+                research_question,
+                initial_view,
+                thesis_id,
+                workspace_id,
+            ),
         ).fetchone()
 
 
@@ -923,6 +952,11 @@ def add_snapshot_evidence(
     url: str | None = None,
     note: str | None = None,
     metadata: dict[str, Any] | None = None,
+    classification: str = "CONTEXT",
+    strength: str = "medium",
+    source_credibility: str = "medium",
+    ai_recommendation: str = "consider",
+    evidence_state: str = "added",
 ) -> dict[str, Any] | None:
     with get_connection() as conn:
         thesis = conn.execute(
@@ -934,9 +968,11 @@ def add_snapshot_evidence(
         return conn.execute(
             """
             INSERT INTO thesis_evidence (
-                thesis_id, evidence_type, title, source, url, excerpt, note, metadata
+                thesis_id, evidence_type, title, source, url, excerpt, note,
+                metadata, classification, strength, source_credibility,
+                ai_recommendation, evidence_state
             )
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             RETURNING *
             """,
             (
@@ -948,7 +984,113 @@ def add_snapshot_evidence(
                 excerpt,
                 note,
                 Jsonb(metadata or {}),
+                classification,
+                strength,
+                source_credibility,
+                ai_recommendation,
+                evidence_state,
             ),
+        ).fetchone()
+
+
+def update_article_evidence_attributes(
+    evidence_id: int,
+    thesis_id: int,
+    workspace_id: str,
+    *,
+    classification: str,
+    strength: str,
+    source_credibility: str,
+    ai_recommendation: str,
+    evidence_state: str,
+    note: str | None = None,
+) -> dict[str, Any] | None:
+    with get_connection() as conn:
+        return conn.execute(
+            """
+            UPDATE thesis_evidence e
+            SET classification = %s, strength = %s,
+                source_credibility = %s, ai_recommendation = %s,
+                evidence_state = %s, note = COALESCE(%s, e.note)
+            FROM investment_theses t
+            WHERE e.id = %s AND e.thesis_id = %s
+              AND t.id = e.thesis_id AND t.workspace_id = %s
+            RETURNING e.*
+            """,
+            (
+                classification,
+                strength,
+                source_credibility,
+                ai_recommendation,
+                evidence_state,
+                note,
+                evidence_id,
+                thesis_id,
+                workspace_id,
+            ),
+        ).fetchone()
+
+
+def list_company_research_evidence(
+    workspace_id: str, query: str, limit: int = 8
+) -> list[dict[str, Any]]:
+    pattern = f"%{query}%"
+    with get_connection() as conn:
+        return conn.execute(
+            """
+            SELECT e.*
+            FROM thesis_evidence e
+            JOIN investment_theses t ON t.id = e.thesis_id
+            WHERE t.workspace_id = %s
+              AND e.evidence_type = 'company_research'
+              AND (e.title ILIKE %s OR e.excerpt ILIKE %s OR e.source ILIKE %s)
+            ORDER BY e.created_at DESC
+            LIMIT %s
+            """,
+            (workspace_id, pattern, pattern, pattern, limit),
+        ).fetchall()
+
+
+def get_thesis_evidence_item(
+    evidence_id: int, workspace_id: str
+) -> dict[str, Any] | None:
+    with get_connection() as conn:
+        return conn.execute(
+            """
+            SELECT e.*
+            FROM thesis_evidence e
+            JOIN investment_theses t ON t.id = e.thesis_id
+            WHERE e.id = %s AND t.workspace_id = %s
+            """,
+            (evidence_id, workspace_id),
+        ).fetchone()
+
+
+def get_weekly_market_report_by_id(report_id: int) -> dict[str, Any] | None:
+    with get_connection() as conn:
+        return conn.execute(
+            "SELECT * FROM weekly_market_reports WHERE id = %s",
+            (report_id,),
+        ).fetchone()
+
+
+def save_thesis_section_data(
+    thesis_id: int,
+    workspace_id: str,
+    sections: dict[str, Any],
+    model: str | None = None,
+) -> dict[str, Any] | None:
+    with get_connection() as conn:
+        return conn.execute(
+            """
+            UPDATE investment_theses
+            SET generated_sections = %s,
+                analysis_model = COALESCE(%s, analysis_model),
+                status = 'developed', updated_at = NOW()
+            WHERE id = %s AND workspace_id = %s
+            RETURNING *
+            """,
+            (Jsonb(sections), model, thesis_id, workspace_id),
         ).fetchone()
 
 
