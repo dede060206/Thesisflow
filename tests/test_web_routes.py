@@ -20,13 +20,24 @@ ARTICLE = {
     "word_count": 1339,
     "is_long_form": True,
     "summary": (
+        "## 中文导读标题\n"
+        "AI 基础设施正在重写创业规则\n\n"
+        "## Original Title\n"
+        "YC x Coinbase RFS: Build Onchain\n\n"
         "## Core Thesis\n"
         "测试摘要。\n\n"
         "## Important Quotes\n"
         "- 原文引用。"
     ),
     "summary_model": "gpt-4.1-mini",
+    "summary_template": "adaptive_v3:THESIS_ARTICLE",
     "summarized_at": "2026-06-05T08:10:00+00:00",
+    "page_type": "ARTICLE",
+    "skip_reason": None,
+    "quality_score": 9,
+    "quality_reasoning": "Substantive investment analysis with evidence.",
+    "content_type": "THESIS_ARTICLE",
+    "content_type_reasoning": "Strong investment thesis signals.",
 }
 
 INSIGHT = {
@@ -71,6 +82,7 @@ def test_category_route_renders_articles() -> None:
 
     assert response.status_code == 200
     assert "YC x Coinbase" in response.text
+    assert "AI 基础设施正在重写创业规则" in response.text
 
 
 def test_update_endpoint_removed() -> None:

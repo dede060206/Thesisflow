@@ -6,3 +6,6 @@ __pycache__/
 .pytest_cache/
 data/*.sqlite3
 data/*.sqlite3-*
+data/*.json
+data/*.html
+data/schema_backups/

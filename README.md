@@ -50,6 +50,23 @@ Run the ingestion worker:
 python scripts/worker.py
 ```
 
+Test the controlled daily policy without fetching article pages, calling OpenAI,
+or writing database rows:
+
+```bash
+python scripts/daily_ingestion.py --dry-run
+```
+
+Run it manually after reviewing the dry-run candidate report:
+
+```bash
+python scripts/daily_ingestion.py
+```
+
+The controlled policy is connected to the scheduled GitHub Actions worker. It
+runs with fixed production limits of 80 discovered candidates, 30 fetched pages,
+and 8 generated summaries, with at most 3 summaries per source.
+
 The worker generates one comprehensive report every Monday for the previous
 Monday-to-Sunday period. Backfill a specific period with:
 

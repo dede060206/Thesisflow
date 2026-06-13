@@ -8,12 +8,19 @@ import psycopg
 from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 
-from app.config import CATEGORIES, DATABASE_URL, MIN_ARTICLE_DATE, TOP_READS_MAX_AGE_DAYS
+from app.config import (
+    CATEGORIES,
+    DATABASE_URL,
+    MIN_ARTICLE_DATE,
+    QUALITY_SCORE_THRESHOLD,
+    TOP_READS_MAX_AGE_DAYS,
+)
 
 
 MIGRATIONS_DIR = Path(__file__).resolve().parent.parent / "migrations"
 ELIGIBLE_ARTICLE_SQL = (
-    "(source = 'Sequoia' OR COALESCE(word_count, 0) > 1000) "
+    "page_type = 'ARTICLE' AND skip_reason IS NULL "
+    "AND COALESCE(quality_score, 0) >= %(quality_score_threshold)s "
     "AND DATE(COALESCE(published_at, fetched_at)) >= %(min_article_date)s"
 )
 
@@ -57,12 +64,26 @@ def init_db() -> None:
 
 
 def query_params(**extra: Any) -> dict[str, Any]:
-    return {"min_article_date": MIN_ARTICLE_DATE, **extra}
+    return {
+        "quality_score_threshold": QUALITY_SCORE_THRESHOLD,
+        "min_article_date": MIN_ARTICLE_DATE,
+        **extra,
+    }
 
 
 def normalize_article_for_write(article: dict[str, Any]) -> dict[str, Any]:
     normalized = dict(article)
     normalized["is_long_form"] = bool(normalized.get("is_long_form"))
+    normalized.setdefault("page_type", "ARTICLE")
+    normalized.setdefault("skip_reason", None)
+    normalized.setdefault("quality_score", None)
+    normalized.setdefault("quality_reasoning", None)
+    normalized.setdefault("content_type", None)
+    normalized.setdefault("content_type_reasoning", None)
+    normalized.setdefault("recency_score", None)
+    normalized.setdefault("trusted_source", False)
+    normalized.setdefault("source_tier", "standard")
+    normalized.setdefault("extraction_failure_reason", None)
     return normalized
 
 
@@ -76,19 +97,103 @@ def upsert_article(article: dict[str, Any]) -> bool:
             """
             INSERT INTO articles (
                 source, title, url, author, published_at, fetched_at, content,
-                category, word_count, is_long_form
+                category, word_count, is_long_form, page_type, skip_reason,
+                quality_score, quality_reasoning, content_type,
+                content_type_reasoning, recency_score, trusted_source,
+                source_tier, extraction_failure_reason
             )
             VALUES (
                 %(source)s, %(title)s, %(url)s, %(author)s, %(published_at)s,
                 %(fetched_at)s, %(content)s, %(category)s, %(word_count)s,
-                %(is_long_form)s
+                %(is_long_form)s, %(page_type)s, %(skip_reason)s,
+                %(quality_score)s, %(quality_reasoning)s, %(content_type)s,
+                %(content_type_reasoning)s, %(recency_score)s, %(trusted_source)s,
+                %(source_tier)s, %(extraction_failure_reason)s
             )
-            ON CONFLICT (url) DO NOTHING
-            RETURNING id
+            ON CONFLICT (url) DO UPDATE SET
+                title = EXCLUDED.title,
+                author = EXCLUDED.author,
+                published_at = COALESCE(EXCLUDED.published_at, articles.published_at),
+                fetched_at = EXCLUDED.fetched_at,
+                content = EXCLUDED.content,
+                category = EXCLUDED.category,
+                word_count = EXCLUDED.word_count,
+                is_long_form = EXCLUDED.is_long_form,
+                page_type = EXCLUDED.page_type,
+                skip_reason = EXCLUDED.skip_reason,
+                quality_score = EXCLUDED.quality_score,
+                quality_reasoning = EXCLUDED.quality_reasoning,
+                content_type = EXCLUDED.content_type,
+                content_type_reasoning = EXCLUDED.content_type_reasoning,
+                recency_score = EXCLUDED.recency_score,
+                trusted_source = EXCLUDED.trusted_source,
+                source_tier = EXCLUDED.source_tier,
+                extraction_failure_reason = EXCLUDED.extraction_failure_reason
+            RETURNING (xmax = 0) AS inserted
             """,
             normalize_article_for_write(article),
         )
-        return cursor.fetchone() is not None
+        row = cursor.fetchone()
+        return bool(row and row["inserted"])
+
+
+def list_existing_article_urls(urls: list[str]) -> set[str]:
+    if not urls:
+        return set()
+    with get_connection() as conn:
+        rows = conn.execute(
+            "SELECT url FROM articles WHERE url = ANY(%s)",
+            (urls,),
+        ).fetchall()
+    return {row["url"] for row in rows}
+
+
+def get_article_by_url(url: str) -> dict[str, Any] | None:
+    with get_connection() as conn:
+        return conn.execute(
+            "SELECT * FROM articles WHERE url = %s",
+            (url,),
+        ).fetchone()
+
+
+def start_ingestion_run(
+    *,
+    dry_run: bool,
+    preview: bool,
+    limits: dict[str, Any],
+    workflow_run_url: str | None = None,
+) -> int:
+    with get_connection() as conn:
+        row = conn.execute(
+            """
+            INSERT INTO ingestion_runs (
+                status, dry_run, preview, limits, workflow_run_url
+            )
+            VALUES ('running', %s, %s, %s, %s)
+            RETURNING id
+            """,
+            (dry_run, preview, Jsonb(limits), workflow_run_url),
+        ).fetchone()
+    return int(row["id"])
+
+
+def finish_ingestion_run(
+    run_id: int,
+    *,
+    status: str,
+    report: dict[str, Any] | None = None,
+    error_message: str | None = None,
+) -> None:
+    with get_connection() as conn:
+        conn.execute(
+            """
+            UPDATE ingestion_runs
+            SET status = %s, finished_at = NOW(), report = %s,
+                error_message = %s
+            WHERE id = %s
+            """,
+            (status, Jsonb(report) if report is not None else None, error_message, run_id),
+        )
 
 
 def list_articles(limit: int = 100) -> list[dict[str, Any]]:
@@ -100,7 +205,8 @@ def list_articles(limit: int = 100) -> list[dict[str, Any]]:
             WHERE """
             + ELIGIBLE_ARTICLE_SQL
             + """
-            ORDER BY is_long_form DESC, COALESCE(published_at, fetched_at) DESC
+            ORDER BY quality_score DESC, recency_score DESC,
+                     COALESCE(published_at, fetched_at) DESC
             LIMIT %(limit)s
             """,
             query_params(limit=limit),
@@ -117,7 +223,8 @@ def list_daily_articles() -> list[dict[str, Any]]:
               AND """
             + ELIGIBLE_ARTICLE_SQL
             + """
-            ORDER BY is_long_form DESC, COALESCE(published_at, fetched_at) DESC
+            ORDER BY quality_score DESC, recency_score DESC,
+                     COALESCE(published_at, fetched_at) DESC
             LIMIT 20
             """,
             query_params(),
@@ -136,7 +243,8 @@ def list_articles_by_category(
               AND """
             + ELIGIBLE_ARTICLE_SQL
             + """
-            ORDER BY is_long_form DESC, word_count DESC, COALESCE(published_at, fetched_at) DESC
+            ORDER BY quality_score DESC, recency_score DESC, word_count DESC,
+                     COALESCE(published_at, fetched_at) DESC
             LIMIT %(limit)s
             """,
             query_params(category=category, limit=limit),
@@ -149,14 +257,14 @@ def list_top_reads_today(limit: int = 5) -> list[dict[str, Any]]:
             """
             SELECT *
             FROM articles
-            WHERE DATE(fetched_at) = CURRENT_DATE
-              AND """
+            WHERE """
             + ELIGIBLE_ARTICLE_SQL
             + """
-              AND published_at IS NOT NULL
-              AND DATE(published_at) >= CURRENT_DATE - (%(top_reads_max_age_days)s * INTERVAL '1 day')
+              AND DATE(COALESCE(published_at, fetched_at))
+                  >= CURRENT_DATE - (%(top_reads_max_age_days)s * INTERVAL '1 day')
             ORDER BY
-                is_long_form DESC,
+                quality_score DESC,
+                recency_score DESC,
                 CASE WHEN summary IS NULL OR summary = '' THEN 1 ELSE 0 END,
                 word_count DESC,
                 COALESCE(published_at, fetched_at) DESC
@@ -235,7 +343,8 @@ def search_articles(query: str, limit: int = 100) -> list[dict[str, Any]]:
             WHERE """
             + ELIGIBLE_ARTICLE_SQL
             + """
-            ORDER BY is_long_form DESC, word_count DESC, COALESCE(published_at, fetched_at) DESC
+            ORDER BY quality_score DESC, recency_score DESC, word_count DESC,
+                     COALESCE(published_at, fetched_at) DESC
             """,
             query_params(),
         ).fetchall()
@@ -277,11 +386,13 @@ def list_articles_for_indexing(limit: int = 100) -> list[dict[str, Any]]:
                 "word_count", "a.word_count"
             ).replace("published_at", "a.published_at").replace(
                 "fetched_at", "a.fetched_at"
-            )
+            ).replace("quality_score", "a.quality_score").replace(
+                "page_type", "a.page_type"
+            ).replace("skip_reason", "a.skip_reason")
             + """
             GROUP BY a.id
             HAVING COUNT(c.id) = 0 OR COUNT(c.embedding) = 0
-            ORDER BY a.is_long_form DESC, a.word_count DESC,
+            ORDER BY a.quality_score DESC, a.recency_score DESC, a.word_count DESC,
                      COALESCE(a.published_at, a.fetched_at) DESC
             LIMIT %(limit)s
             """,
@@ -349,7 +460,9 @@ def search_article_chunks_vector(
                 "word_count", "a.word_count"
             ).replace("published_at", "a.published_at").replace(
                 "fetched_at", "a.fetched_at"
-            )
+            ).replace("quality_score", "a.quality_score").replace(
+                "page_type", "a.page_type"
+            ).replace("skip_reason", "a.skip_reason")
             + source_clause
             + """
             ORDER BY c.embedding <=> %(embedding)s::vector
@@ -389,7 +502,9 @@ def search_article_chunks_text(
                 "word_count", "a.word_count"
             ).replace("published_at", "a.published_at").replace(
                 "fetched_at", "a.fetched_at"
-            )
+            ).replace("quality_score", "a.quality_score").replace(
+                "page_type", "a.page_type"
+            ).replace("skip_reason", "a.skip_reason")
             + source_clause
             + """
             ORDER BY score DESC
@@ -405,11 +520,16 @@ def list_unsummarized_articles(limit: int = 20) -> list[dict[str, Any]]:
             """
             SELECT *
             FROM articles
-            WHERE summary IS NULL OR summary = ''
-            ORDER BY is_long_form DESC, word_count DESC, COALESCE(published_at, fetched_at) DESC
+            WHERE (summary IS NULL OR summary = '')
+              AND page_type = 'ARTICLE'
+              AND skip_reason IS NULL
+              AND quality_score >= %s
+              AND DATE(COALESCE(published_at, fetched_at)) >= %s
+            ORDER BY quality_score DESC, recency_score DESC, word_count DESC,
+                     COALESCE(published_at, fetched_at) DESC
             LIMIT %s
             """,
-            (limit,),
+            (QUALITY_SCORE_THRESHOLD, MIN_ARTICLE_DATE, limit),
         ).fetchall()
 
 
@@ -419,24 +539,34 @@ def list_articles_for_resummary(limit: int = 100) -> list[dict[str, Any]]:
             """
             SELECT *
             FROM articles
-            ORDER BY is_long_form DESC, word_count DESC, COALESCE(published_at, fetched_at) DESC
+            WHERE page_type = 'ARTICLE'
+              AND skip_reason IS NULL
+              AND quality_score >= %s
+              AND DATE(COALESCE(published_at, fetched_at)) >= %s
+            ORDER BY quality_score DESC, recency_score DESC, word_count DESC,
+                     COALESCE(published_at, fetched_at) DESC
             LIMIT %s
             """,
-            (limit,),
+            (QUALITY_SCORE_THRESHOLD, MIN_ARTICLE_DATE, limit),
         ).fetchall()
 
 
 def save_summary(
-    article_id: int, summary: str, model: str, summarized_at: str
+    article_id: int,
+    summary: str,
+    model: str,
+    summarized_at: str,
+    summary_template: str,
 ) -> None:
     with get_connection() as conn:
         conn.execute(
             """
             UPDATE articles
-            SET summary = %s, summary_model = %s, summarized_at = %s
+            SET summary = %s, summary_model = %s, summarized_at = %s,
+                summary_template = %s
             WHERE id = %s
             """,
-            (summary, model, summarized_at, article_id),
+            (summary, model, summarized_at, summary_template, article_id),
         )
 
 
@@ -451,7 +581,8 @@ def list_articles_for_weekly_insight(
             WHERE category = %s
               AND DATE(fetched_at) >= %s
               AND DATE(fetched_at) <= %s
-            ORDER BY is_long_form DESC, word_count DESC, COALESCE(published_at, fetched_at) DESC
+            ORDER BY quality_score DESC, recency_score DESC, word_count DESC,
+                     COALESCE(published_at, fetched_at) DESC
             LIMIT %s
             """,
             (category, week_start, week_end, limit),
@@ -512,7 +643,7 @@ def list_articles_for_weekly_report(
             + ELIGIBLE_ARTICLE_SQL
             + """
             ORDER BY COALESCE(published_at, fetched_at) DESC,
-                     is_long_form DESC, word_count DESC
+                     quality_score DESC, recency_score DESC, word_count DESC
             LIMIT %(limit)s
             """,
             query_params(
@@ -711,7 +842,7 @@ def search_articles_for_evidence(
               AND """
             + ELIGIBLE_ARTICLE_SQL
             + """
-            ORDER BY is_long_form DESC, word_count DESC,
+            ORDER BY quality_score DESC, recency_score DESC, word_count DESC,
                      COALESCE(published_at, fetched_at) DESC
             LIMIT %(limit)s
             """,

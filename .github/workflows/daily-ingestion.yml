@@ -9,6 +9,9 @@ jobs:
   ingest:
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    concurrency:
+      group: thesisflow-daily-ingestion
+      cancel-in-progress: false
     env:
       APP_NAME: Thesisflow
       DATABASE_URL: ${{ secrets.DATABASE_URL }}
@@ -20,15 +23,24 @@ jobs:
       EMBEDDING_DIMENSIONS: ${{ vars.EMBEDDING_DIMENSIONS }}
       ARTICLE_CHUNK_WORDS: ${{ vars.ARTICLE_CHUNK_WORDS }}
       ARTICLE_CHUNK_OVERLAP_WORDS: ${{ vars.ARTICLE_CHUNK_OVERLAP_WORDS }}
-      DAILY_ARTICLE_LIMIT: ${{ vars.DAILY_ARTICLE_LIMIT }}
+      DAILY_ARTICLE_LIMIT: "8"
+      DAILY_MAX_CANDIDATE_LINKS: "80"
+      DAILY_MAX_PAGES_FETCHED: "30"
+      DAILY_MAX_ARTICLES_SUMMARIZED: "8"
+      DAILY_MIN_QUALITY_SCORE: "7"
+      DAILY_MAX_PER_SOURCE: "3"
+      DAILY_MAX_RECURSION_DEPTH: "1"
+      DAILY_RETRY_ATTEMPTS: "3"
+      DAILY_RETRY_BASE_SECONDS: "2"
+      INGESTION_ALERT_WEBHOOK_URL: ${{ secrets.INGESTION_ALERT_WEBHOOK_URL }}
       LONG_FORM_WORD_THRESHOLD: ${{ vars.LONG_FORM_WORD_THRESHOLD }}
       MIN_ARTICLE_DATE: ${{ vars.MIN_ARTICLE_DATE }}
       MAX_ARTICLE_AGE_DAYS: ${{ vars.MAX_ARTICLE_AGE_DAYS }}
       TOP_READS_MAX_AGE_DAYS: ${{ vars.TOP_READS_MAX_AGE_DAYS }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
           cache: "pip"
@@ -36,5 +48,27 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: Run ingestion worker
-        run: python scripts/worker.py
+      - name: Run controlled daily ingestion
+        run: python scripts/daily_ingestion.py --report data/daily-ingestion-report.json
+
+      - name: Index new articles and maintain weekly report
+        run: python scripts/worker.py --skip-fetch --summary-limit 0 --index-limit 8
+
+      - name: Publish run summary
+        if: always()
+        run: |
+          if [ -f data/daily-ingestion-report.json ]; then
+            python scripts/publish_ingestion_summary.py data/daily-ingestion-report.json
+          else
+            echo "## Thesisflow daily ingestion" >> "$GITHUB_STEP_SUMMARY"
+            echo "- Run failed before a report was generated. Check job logs and ingestion_runs." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload ingestion report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: daily-ingestion-report-${{ github.run_id }}
+          path: data/daily-ingestion-report.json
+          if-no-files-found: warn
+          retention-days: 30

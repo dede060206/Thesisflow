@@ -14,7 +14,8 @@
         <a class="category-pill" href="/category/{{ (article.category or 'Market Analysis') | replace(' ', '%20') }}">{{ article.category or "Market Analysis" }}</a>
       </div>
       <p class="meta">{{ article.fetched_at }} · {{ article.word_count or 0 }} words{% if article.is_long_form %} · Long-form{% endif %}</p>
-      <h2><a href="/article/{{ article.id }}">{{ article.title }}</a></h2>
+      <h2><a href="/article/{{ article.id }}">{{ article.summary | summary_title or article.title }}</a></h2>
+      {% if article.summary | summary_title %}<p class="original-card-title">{{ article.title }}</p>{% endif %}
       <div class="summary compact">{{ article.summary | summary_html | safe }}</div>
       <div class="card-actions">
         <a class="source-link" href="/article/{{ article.id }}">查看摘要</a>

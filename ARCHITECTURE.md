@@ -111,11 +111,25 @@ Recommended environment variables:
 1. GitHub Actions runs `python scripts/worker.py` daily.
 2. Worker runs migrations against Neon Postgres.
 3. Worker fetches eligible long-form articles.
-4. Worker upserts articles by unique `url`.
-5. Worker summarizes pending articles through OpenAI.
-6. Worker chunks articles and stores embeddings in pgvector.
-7. On Mondays, the worker generates the previous week's comprehensive market report.
-8. Vercel web app reads from Postgres and renders pages.
+4. Each extracted page is classified as ARTICLE, INDEX_PAGE, AUTHOR_PAGE,
+   PODCAST_PAGE, NEWSLETTER_ARCHIVE, or LOW_VALUE_PAGE.
+5. For INDEX_PAGE and NEWSLETTER_ARCHIVE pages, the worker scores internal links,
+   fetches the top five candidates, and classifies them at recursion depth 1.
+6. A run-level URL set prevents duplicate fetches and recursive loops.
+7. Each fetched page receives a deterministic 1-10 content quality score covering
+   originality, specificity, evidence density, venture relevance, and depth.
+8. Trusted VC domains receive a small editorial-quality bonus and can qualify at
+   500 words; standard sources normally require 800 words.
+9. Recency is stored as a 2-10 ranking score instead of rejecting articles by age.
+10. Worker stores classification, extraction diagnostics, quality reasoning, and
+    skip reason by unique `url`.
+11. Eligible ARTICLE records scoring at least 7 receive a content type classification
+   before entering the existing summarization queue.
+12. Only eligible ARTICLE records scoring at least 7 are summarized through OpenAI,
+    using an adaptive template selected from their content type.
+13. Worker chunks articles and stores embeddings in pgvector.
+14. On Mondays, the worker generates the previous week's comprehensive market report.
+15. Vercel web app reads from Postgres and renders pages.
 
 ## AI Chat Data Flow
 
@@ -168,3 +182,26 @@ cookie is deleted.
 The web app is intentionally read-heavy and request-scoped. Long network-bound
 work is isolated in the worker so Vercel request timeouts and cold starts do not
 affect ingestion reliability.
+
+## Controlled Daily Ingestion
+
+`scripts/daily_ingestion.py` is the production daily orchestration entry point.
+It discovers at most 80 structured candidates from configured RSS feeds, source
+index pages, and optional `DAILY_MANUAL_SOURCE_URLS`. Discovery does not summarize.
+
+Triage canonicalizes and deduplicates URLs, removes records already present in
+Postgres, and cheaply ranks candidates using source tier, recency, title/topic
+relevance, and article-like URL signals. Only the top 30 proceed to full fetching.
+
+The final stage reuses the existing page classifier, quality scorer, content type
+classifier, and adaptive summary templates. It summarizes at most eight articles,
+with a maximum of three per source, and never fills a quota with low-quality pages.
+`--dry-run` stops after triage and performs no article fetches, OpenAI calls, or
+database writes. `--preview` runs classification and summaries without database
+writes. GitHub Actions runs the normal mode daily and stores run status, metrics,
+errors, and the full JSON report in `ingestion_runs`.
+
+Transient page-fetch and OpenAI failures are retried up to three times with
+exponential backoff. GitHub Actions exposes failures in the repository Actions
+UI, retains each JSON report for 30 days, and can send failure notifications to
+an optional `INGESTION_ALERT_WEBHOOK_URL` secret.

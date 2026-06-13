@@ -50,7 +50,15 @@ CHAT_TOP_K=6
 ARTICLE_CHUNK_WORDS=450
 ARTICLE_CHUNK_OVERLAP_WORDS=60
 CRON_SECRET=replace_with_a_long_random_secret
-DAILY_ARTICLE_LIMIT=20
+DAILY_ARTICLE_LIMIT=8
+DAILY_MAX_CANDIDATE_LINKS=80
+DAILY_MAX_PAGES_FETCHED=30
+DAILY_MAX_ARTICLES_SUMMARIZED=8
+DAILY_MIN_QUALITY_SCORE=7
+DAILY_MAX_PER_SOURCE=3
+DAILY_MAX_RECURSION_DEPTH=1
+DAILY_RETRY_ATTEMPTS=3
+DAILY_RETRY_BASE_SECONDS=2
 LONG_FORM_WORD_THRESHOLD=1000
 MIN_ARTICLE_DATE=2025-06-01
 MAX_ARTICLE_AGE_DAYS=15
@@ -72,6 +80,7 @@ This creates:
 - `weekly_market_reports`
 - `investment_theses`
 - `thesis_evidence`
+- `ingestion_runs`
 
 Migration `002_article_chunks.sql` enables Neon's `vector` extension.
 
@@ -127,7 +136,7 @@ WORKSPACE_SECRET=replace_with_a_long_random_secret
 EMBEDDING_MODEL=text-embedding-3-small
 EMBEDDING_DIMENSIONS=1536
 CHAT_TOP_K=6
-DAILY_ARTICLE_LIMIT=20
+DAILY_ARTICLE_LIMIT=8
 LONG_FORM_WORD_THRESHOLD=1000
 MIN_ARTICLE_DATE=2025-06-01
 MAX_ARTICLE_AGE_DAYS=15
@@ -181,6 +190,23 @@ MAX_ARTICLE_AGE_DAYS
 TOP_READS_MAX_AGE_DAYS
 ```
 
+Optional repository secret for Slack-, Discord-, or webhook-compatible failure
+notifications:
+
+```text
+INGESTION_ALERT_WEBHOOK_URL
+```
+
+The daily production limits are fixed in the workflow and do not depend on
+repository variables:
+
+```text
+max_candidate_links=80
+max_pages_fetched=30
+max_articles_summarized=8
+max_per_source=3
+```
+
 The workflow is defined at:
 
 ```text
@@ -188,6 +214,12 @@ The workflow is defined at:
 ```
 
 It runs daily at `08:00 UTC` and can also be run manually from GitHub Actions.
+Each run applies pending migrations, writes accepted articles and summaries to
+the configured `DATABASE_URL`, stores a structured row in `ingestion_runs`, and
+uploads the JSON run report as a GitHub Actions artifact retained for 30 days.
+Transient fetch and OpenAI failures are retried three times with exponential
+backoff. A fatal failure marks the database run as failed, fails the Actions job,
+and sends the optional webhook notification.
 On Mondays it generates the previous complete week's comprehensive market report.
 It no longer generates per-category weekly summaries.
 

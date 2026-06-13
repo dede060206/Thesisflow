@@ -48,9 +48,35 @@ class CompareRequest(BaseModel):
 
 
 SUMMARY_HEADING_LABELS = {
-    "core thesis": "Core Thesis / 核心论点",
-    "key insights": "Key Insights / 关键洞察",
-    "actionable takeaways": "Actionable Takeaways / 行动启发",
+    "core thesis": "🎯 核心论点",
+    "core thesis / 核心论点": "🎯 核心论点",
+    "why now / 为什么是现在": "⏳ 为什么是现在",
+    "supporting evidence / 支持证据": "🧾 支持证据",
+    "non-obvious insight / 非共识洞察": "💡 非共识洞察",
+    "risks / counterarguments / 风险与反方观点": "⚖️ 风险与反方观点",
+    "investment relevance / 投资相关性": "🔭 投资相关性",
+    "main argument / 主要观点": "🎯 主要观点",
+    "author's perspective / 作者视角": "🖋️ 作者视角",
+    "useful insight / 有用洞察": "💡 有用洞察",
+    "weakness or limitation / 局限性": "⚖️ 局限性",
+    "investment relevance if any / 投资相关性": "🔭 投资相关性",
+    "company / 公司": "🏢 公司",
+    "round / investors / amount / 轮次、投资方与金额": "💰 轮次、投资方与金额",
+    "what the company does / 公司业务": "🧩 公司业务",
+    "why this round matters / 本轮融资意义": "🎯 本轮融资意义",
+    "market signal / 市场信号": "📡 市场信号",
+    "company overview / 公司概览": "🏢 公司概览",
+    "product / business model / 产品与商业模式": "🧩 产品与商业模式",
+    "competitive position / 竞争位置": "🏰 竞争位置",
+    "growth drivers / 增长驱动因素": "📈 增长驱动因素",
+    "risks / 风险": "⚠️ 风险",
+    "what the technology is / 技术定义": "🧠 技术是什么",
+    "why it matters now / 当前重要性": "⏳ 为什么现在重要",
+    "technical bottleneck / 技术瓶颈": "🛠️ 技术瓶颈",
+    "commercial implication / 商业影响": "💼 商业影响",
+    "relevant companies or sectors / 相关公司或行业": "🏢 相关公司或行业",
+    "key insights": "💡 关键洞察",
+    "actionable takeaways": "🧭 行动启发",
     "important quotes": "原文引用",
     "原文引用": "原文引用",
 }
@@ -58,6 +84,14 @@ SUMMARY_HEADING_LABELS = {
 SECTION_ALIASES = {
     "Important Quotes": ["Important Quotes", "原文引用"],
     "原文引用": ["原文引用", "Important Quotes"],
+}
+
+HIDDEN_SUMMARY_SECTIONS = {
+    "source metadata",
+    "source metadata / 来源信息",
+    "来源信息",
+    "中文导读标题",
+    "original title",
 }
 
 
@@ -69,11 +103,20 @@ def render_summary(value: str | None) -> str:
     if not value:
         return "<p>摘要尚未生成。</p>"
 
+    value = re.sub(
+        r"(?ms)^##\s+[^\n]+\n(?:\s*[-*]?\s*)?(?:"
+        r"Not enough evidence in source[。.．]?|"
+        r"(?:原文|正文)(?:中)?(?:未|没有)(?:提供|包含|提及|说明|披露).+?"
+        r")\s*(?=^##\s+|\Z)",
+        "",
+        value,
+    )
     escaped = html.escape(value)
     escaped = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", escaped)
     lines = escaped.splitlines()
     rendered: list[str] = []
     in_list = False
+    hidden_section = False
 
     for line in lines:
         stripped = line.strip()
@@ -86,7 +129,18 @@ def render_summary(value: str | None) -> str:
             if in_list:
                 rendered.append("</ul>")
                 in_list = False
-            rendered.append(f"<h3>{display_heading(stripped[3:])}</h3>")
+            heading = stripped[3:].strip()
+            hidden_section = heading.lower() in HIDDEN_SUMMARY_SECTIONS
+            if hidden_section:
+                continue
+            heading_class = "summary-kicker" if heading.lower() == "中文导读标题" else ""
+            if heading.lower() == "original title":
+                heading_class = "summary-original-title"
+            rendered.append(
+                f'<h3 class="{heading_class}">{display_heading(heading)}</h3>'
+            )
+        elif hidden_section:
+            continue
         elif stripped.startswith("- "):
             if not in_list:
                 rendered.append("<ul>")
@@ -125,6 +179,11 @@ def summary_section(value: str | None, section_name: str) -> str:
     return "\n".join(section_lines).strip()
 
 
+def summary_title(value: str | None) -> str:
+    title = summary_section(value, "中文导读标题")
+    return " ".join(title.split()) if title else ""
+
+
 def summary_without_section(value: str | None, section_name: str) -> str:
     if not value:
         return ""
@@ -156,6 +215,7 @@ def db_or_default(fn: Callable[[], T], default: T) -> T:
 templates.env.filters["summary_html"] = render_summary
 templates.env.filters["summary_section"] = summary_section
 templates.env.filters["summary_without_section"] = summary_without_section
+templates.env.filters["summary_title"] = summary_title
 
 
 @app.get("/health")
