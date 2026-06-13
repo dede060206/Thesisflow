@@ -28,6 +28,34 @@ WEEKLY_REPORT = {
                 "citation_numbers": [1],
             }
         ],
+        "top_themes": [
+            {
+                "rank": 1,
+                "theme": "AI 基础设施成本重构",
+                "signal_count": 3,
+                "strength": "高质量文章跨机构重复出现",
+                "explanation": "推理成本与基础设施采购正在同时变化。",
+                "citation_numbers": [1],
+            }
+        ],
+        "most_mentioned_companies": [
+            {
+                "rank": 1,
+                "company": "Acme AI",
+                "mention_count": 2,
+                "context": "多篇文章将其作为基础设施案例。",
+                "citation_numbers": [1],
+            }
+        ],
+        "emerging_signals": [],
+        "contrarian_insights": [],
+        "investor_takeaway": [
+            {
+                "summary": "关注成本下降带来的新商业模式。",
+                "actions": ["验证毛利率变化"],
+                "citation_numbers": [1],
+            }
+        ],
         "rising_topics": [],
         "investor_consensus": [],
         "investor_disagreements": [],
@@ -85,6 +113,11 @@ def test_normalize_report_keeps_required_sections_and_valid_citations() -> None:
 
     assert set(report) == {
         "top_signals",
+        "top_themes",
+        "most_mentioned_companies",
+        "emerging_signals",
+        "contrarian_insights",
+        "investor_takeaway",
         "rising_topics",
         "investor_consensus",
         "investor_disagreements",
@@ -92,6 +125,7 @@ def test_normalize_report_keeps_required_sections_and_valid_citations() -> None:
     }
     assert report["top_signals"][0]["rank"] == 1
     assert report["top_signals"][0]["citation_numbers"] == [2]
+    assert report["top_themes"] == []
 
 
 def test_weekly_page_renders_latest_report() -> None:
@@ -102,6 +136,13 @@ def test_weekly_page_renders_latest_report() -> None:
     assert "Thesisflow 周度市场信号" in response.text
     assert "本周核心信号" in response.text
     assert "AI infrastructure spending rises" in response.text
+    assert "核心主题" in response.text
+    assert "高频公司" in response.text
+    assert "新兴信号" in response.text
+    assert "非共识洞察" in response.text
+    assert "本周投资启示" in response.text
+    assert "AI 基础设施成本重构" in response.text
+    assert "Acme AI" in response.text
     assert "Infrastructure" in response.text
 
 

@@ -14,6 +14,7 @@ from pydantic import BaseModel, Field
 
 from app.chat import answer_question
 from app.compare import compare_investors
+from app.company_research import research_company
 from app.config import APP_NAME, CATEGORIES, DATABASE_URL, INVESTORS
 from app.database import (
     get_latest_weekly_market_report,
@@ -45,6 +46,10 @@ class ChatRequest(BaseModel):
 class CompareRequest(BaseModel):
     topic: str = Field(min_length=1, max_length=500)
     investors: list[str]
+
+
+class CompanyResearchRequest(BaseModel):
+    company_name: str = Field(min_length=1, max_length=200)
 
 
 SUMMARY_HEADING_LABELS = {
@@ -345,6 +350,28 @@ def compare_page(request: Request) -> HTMLResponse:
         "compare.html",
         {"investors": INVESTORS},
     )
+
+
+@app.get("/company", response_class=HTMLResponse)
+def company_research_page(request: Request) -> HTMLResponse:
+    return templates.TemplateResponse(request, "company.html", {})
+
+
+@app.post("/api/company-research")
+def api_company_research(payload: CompanyResearchRequest) -> dict:
+    company_name = payload.company_name.strip()
+    if not company_name:
+        raise HTTPException(status_code=400, detail="Company name cannot be empty.")
+    try:
+        return research_company(company_name)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.exception("Company research request failed")
+        raise HTTPException(
+            status_code=500,
+            detail="Unable to generate company research right now.",
+        ) from exc
 
 
 @app.post("/api/compare")

@@ -748,6 +748,168 @@ code {
   margin: 0 auto;
 }
 
+.company-shell {
+  max-width: 1080px;
+  margin: 0 auto;
+}
+
+.company-head {
+  max-width: 780px;
+}
+
+.company-form,
+.company-result {
+  margin-top: 28px;
+  padding: 24px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.company-form > label {
+  display: block;
+  margin-bottom: 9px;
+  font-weight: 700;
+}
+
+.company-search-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+}
+
+.company-search-row input {
+  min-width: 0;
+  padding: 13px 14px;
+  background: #fff;
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  color: var(--ink);
+  font: inherit;
+}
+
+.company-search-row button {
+  padding: 12px 18px;
+  background: var(--accent-dark);
+  border: 0;
+  border-radius: 6px;
+  color: #fff;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 700;
+}
+
+.company-search-row button:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
+.company-form > p {
+  margin: 10px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.company-report-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 22px;
+  padding-bottom: 25px;
+  border-bottom: 1px solid var(--line);
+}
+
+.company-report-head h2 {
+  margin: 2px 0 5px;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 38px;
+  font-weight: 500;
+}
+
+.company-report-head p:last-child {
+  max-width: 700px;
+  margin: 0;
+  color: var(--muted);
+}
+
+.company-report-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 15px;
+  margin-top: 25px;
+}
+
+.company-report-card {
+  padding: 21px;
+  background: var(--paper, #fbf8f2);
+  border: 1px solid var(--line);
+  border-radius: 7px;
+}
+
+.company-report-card.wide {
+  grid-column: 1 / -1;
+}
+
+.company-report-card h3 {
+  margin: 0 0 13px;
+  color: var(--accent-dark);
+  font-family: Georgia, "Songti SC", serif;
+  font-size: 23px;
+  font-weight: 500;
+}
+
+.company-report-card p,
+.company-report-card ul {
+  margin: 7px 0;
+}
+
+.company-report-card ul {
+  padding-left: 20px;
+}
+
+.company-field {
+  padding: 9px 0;
+  border-top: 1px solid var(--line);
+}
+
+.company-field:first-child {
+  padding-top: 0;
+  border-top: 0;
+}
+
+.company-field > strong {
+  display: block;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.company-subitems {
+  display: grid;
+  gap: 10px;
+}
+
+.company-subitem {
+  padding: 12px;
+  background: rgba(255, 255, 255, 0.55);
+  border-radius: 5px;
+}
+
+@media (max-width: 760px) {
+  .company-search-row,
+  .company-report-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .company-report-card.wide {
+    grid-column: auto;
+  }
+
+  .company-report-head {
+    align-items: stretch;
+    flex-direction: column;
+  }
+}
+
 .compare-form,
 .compare-result {
   padding: 24px;
@@ -1036,11 +1198,91 @@ code {
   margin-top: 34px;
 }
 
+.weekly-intelligence-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(300px, 0.65fr);
+  gap: 16px;
+  margin-top: 34px;
+}
+
+.weekly-panel-wide {
+  min-width: 0;
+}
+
+.theme-row {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  gap: 12px;
+}
+
+.theme-rank {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  place-items: center;
+  background: var(--accent-soft);
+  border-radius: 50%;
+  color: var(--accent-dark);
+  font-family: Georgia, "Times New Roman", serif;
+}
+
+.signal-count {
+  flex: none;
+  padding: 3px 8px;
+  background: var(--surface-strong);
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.theme-strength {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.investor-takeaway {
+  margin-top: 34px;
+  padding: 28px 30px;
+  background: var(--accent-soft);
+  border: 1px solid rgba(190, 92, 47, 0.18);
+  border-radius: 8px;
+}
+
+.investor-takeaway h2 {
+  margin: 3px 0 12px;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 28px;
+  font-weight: 500;
+}
+
+.takeaway-summary {
+  max-width: 850px;
+  font-family: Georgia, "Songti SC", serif;
+  font-size: 19px;
+  line-height: 1.7;
+}
+
+.investor-takeaway li {
+  margin: 5px 0;
+}
+
 .weekly-panel {
   padding: 22px;
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: 8px;
+}
+
+@media (max-width: 780px) {
+  .weekly-intelligence-grid,
+  .weekly-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .investor-takeaway {
+    padding: 22px;
+  }
 }
 
 .weekly-panel > h2 {

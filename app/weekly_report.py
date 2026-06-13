@@ -16,6 +16,7 @@ from app.config import (
 )
 from app.database import (
     get_weekly_market_report,
+    list_articles_for_weekly_baseline,
     list_articles_for_weekly_report,
     save_weekly_market_report,
 )
@@ -23,6 +24,11 @@ from app.database import (
 
 REPORT_KEYS = (
     "top_signals",
+    "top_themes",
+    "most_mentioned_companies",
+    "emerging_signals",
+    "contrarian_insights",
+    "investor_takeaway",
     "rising_topics",
     "investor_consensus",
     "investor_disagreements",
@@ -71,6 +77,8 @@ def article_context(article: dict, citation_number: int) -> str:
             f"Title: {article['title']}",
             f"Investor: {article['source']}",
             f"Category: {article.get('category') or 'Uncategorized'}",
+            f"Quality score: {article.get('quality_score') or 0}/10",
+            f"Source tier: {article.get('source_tier') or 'standard'}",
             f"Date: {serialize_date(article.get('published_at') or article.get('fetched_at'))}",
             f"Evidence: {evidence[:2200]}",
         ]
@@ -107,9 +115,10 @@ def extract_batch_signals(
                 "content": (
                     f"Articles:\n{context}\n\n"
                     "Return a JSON object with these arrays: top_signals, rising_topics, "
-                    "investor_positions, emerging_themes. Each item must include a concise "
-                    "statement and citation_numbers. investor_positions must also include "
-                    "investor. Cover every article at least once."
+                    "investor_positions, emerging_themes, theme_candidates, company_mentions, "
+                    "contrarian_candidates. Each item must include a concise statement and "
+                    "citation_numbers. company_mentions must include company. "
+                    "investor_positions must also include investor. Cover every article at least once."
                 ),
             },
         ],
@@ -121,6 +130,7 @@ def synthesize_report(
     client: OpenAI,
     candidates: list[dict[str, Any]],
     citations: list[dict[str, Any]],
+    historical_baseline: list[dict[str, Any]],
 ) -> dict[str, Any]:
     source_catalog = [
         {
@@ -130,6 +140,15 @@ def synthesize_report(
             "category": item["category"],
         }
         for item in citations
+    ]
+    baseline_catalog = [
+        {
+            "title": article["title"],
+            "source": article["source"],
+            "quality_score": article.get("quality_score"),
+            "summary": (article.get("summary") or article.get("content") or "")[:700],
+        }
+        for article in historical_baseline
     ]
     response = client.responses.create(
         model=WEEKLY_REPORT_MODEL,
@@ -141,7 +160,9 @@ def synthesize_report(
                     "Use only the supplied candidate findings and source catalog. Return "
                     "valid JSON only. Write concise Chinese. Do not create category summaries. "
                     "Merge duplicates, distinguish consensus from disagreement, and never "
-                    "invent citations."
+                    "invent citations. Rank themes using recurrence, source tier, and article "
+                    "quality score. Company names must refer to operating companies, not VC firms. "
+                    "Contrarian insights must be specific and falsifiable, not generic commentary."
                 ),
             },
             {
@@ -149,10 +170,21 @@ def synthesize_report(
                 "content": (
                     f"Candidate findings:\n{json.dumps(candidates, ensure_ascii=False)}\n\n"
                     f"Source catalog:\n{json.dumps(source_catalog, ensure_ascii=False)}\n\n"
+                    f"Previous 30-day baseline:\n{json.dumps(baseline_catalog, ensure_ascii=False)}\n\n"
                     "Return exactly this JSON shape:\n"
                     "{\n"
                     '  "top_signals": [{"rank": 1, "title": "", "summary": "", '
                     '"why_it_matters": "", "investors": [], "citation_numbers": []}],\n'
+                    '  "top_themes": [{"rank": 1, "theme": "", "signal_count": 0, '
+                    '"strength": "", "explanation": "", "citation_numbers": []}],\n'
+                    '  "most_mentioned_companies": [{"rank": 1, "company": "", '
+                    '"mention_count": 0, "context": "", "citation_numbers": []}],\n'
+                    '  "emerging_signals": [{"signal": "", "newness": "", '
+                    '"evidence": "", "investor_implication": "", "citation_numbers": []}],\n'
+                    '  "contrarian_insights": [{"insight": "", "why_non_obvious": "", '
+                    '"investment_question": "", "citation_numbers": []}],\n'
+                    '  "investor_takeaway": [{"summary": "", "actions": [], '
+                    '"citation_numbers": []}],\n'
                     '  "rising_topics": [{"topic": "", "momentum": "high or medium", '
                     '"evidence": "", "citation_numbers": []}],\n'
                     '  "investor_consensus": [{"statement": "", "investors": [], '
@@ -163,7 +195,11 @@ def synthesize_report(
                     '  "emerging_themes": [{"theme": "", "early_signal": "", '
                     '"what_to_watch": "", "citation_numbers": []}]\n'
                     "}\n"
-                    "Return at most 5 top signals and at most 4 items in each other section."
+                    "Return at most 5 top signals, themes, and companies; at most 4 items in "
+                    "each other section; and exactly one investor_takeaway item when evidence exists. "
+                    "For emerging_signals, explicitly compare this week with the baseline and exclude "
+                    "topics already common there. signal_count and mention_count must reflect distinct "
+                    "weekly source articles, based on citation_numbers."
                 ),
             },
         ],
@@ -197,6 +233,9 @@ def normalize_report(value: dict[str, Any], citation_count: int) -> dict[str, li
             report[key].append(normalized)
     for index, item in enumerate(report["top_signals"], start=1):
         item["rank"] = index
+    for key in ("top_themes", "most_mentioned_companies"):
+        for index, item in enumerate(report[key], start=1):
+            item["rank"] = index
     return report
 
 
@@ -229,6 +268,11 @@ def generate_weekly_market_report(
         return {"generated": 0, "skipped": "already_exists"}
 
     articles = list_articles_for_weekly_report(week_start, week_end)
+    baseline_end = date.fromisoformat(week_start) - timedelta(days=1)
+    baseline_start = baseline_end - timedelta(days=29)
+    historical_baseline = list_articles_for_weekly_baseline(
+        baseline_start.isoformat(), baseline_end.isoformat()
+    )
     citations = article_citations(articles)
     if not articles:
         report = empty_report()
@@ -241,7 +285,7 @@ def generate_weekly_market_report(
             extract_batch_signals(client, batch, citation_numbers)
             for batch in chunked(articles, WEEKLY_REPORT_BATCH_SIZE)
         ]
-        report = synthesize_report(client, candidates, citations)
+        report = synthesize_report(client, candidates, citations, historical_baseline)
 
     referenced = referenced_citation_numbers(report)
     stored_citations = [
@@ -266,4 +310,5 @@ def generate_weekly_market_report(
         "week_end": week_end,
         "articles": len(articles),
         "investors": len({article["source"] for article in articles}),
+        "baseline_articles": len(historical_baseline),
     }

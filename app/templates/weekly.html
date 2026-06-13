@@ -4,7 +4,7 @@
   {% set report = weekly_report.report %}
   <section class="weekly-dashboard">
     <header class="weekly-header">
-      <p class="eyebrow">Weekly market intelligence</p>
+      <p class="eyebrow">周度投资情报</p>
       <h1>Thesisflow 周度市场信号</h1>
       <p>{{ weekly_report.week_start }} - {{ weekly_report.week_end }}</p>
       <div class="weekly-stats">
@@ -17,7 +17,7 @@
 
     <section class="weekly-section">
       <div class="section-head">
-        <p class="eyebrow">Top signals this week</p>
+        <p class="eyebrow">本周最重要的变化</p>
         <h2>🔥 本周核心信号</h2>
       </div>
       <div class="signal-list">
@@ -36,12 +36,80 @@
       </div>
     </section>
 
+    <div class="weekly-intelligence-grid">
+      <section class="weekly-panel weekly-panel-wide">
+        <h2>🧭 核心主题</h2>
+        {% for item in report.top_themes or [] %}
+          <article class="weekly-item theme-row">
+            <span class="theme-rank">{{ item.rank }}</span>
+            <div>
+              <div class="weekly-item-head">
+                <h3>{{ item.theme }}</h3>
+                <span class="signal-count">{{ item.signal_count }} 条信号</span>
+              </div>
+              <p>{{ item.explanation }}</p>
+              {% if item.strength %}<p class="theme-strength"><strong>信号强度：</strong>{{ item.strength }}</p>{% endif %}
+              <p class="inline-citations">{% for number in item.citation_numbers %}[{{ number }}] {% endfor %}</p>
+            </div>
+          </article>
+        {% else %}<p class="muted-copy">暂无足够数据形成主题排名。</p>{% endfor %}
+      </section>
+
+      <section class="weekly-panel">
+        <h2>🏢 高频公司</h2>
+        {% for item in report.most_mentioned_companies or [] %}
+          <article class="weekly-item company-row">
+            <div class="weekly-item-head"><h3>{{ item.company }}</h3><span class="signal-count">提及 {{ item.mention_count }} 次</span></div>
+            <p>{{ item.context }}</p>
+            <p class="inline-citations">相关信号：{% for number in item.citation_numbers %}[{{ number }}] {% endfor %}</p>
+          </article>
+        {% else %}<p class="muted-copy">本周没有形成高频公司样本。</p>{% endfor %}
+      </section>
+    </div>
+
+    <div class="weekly-grid">
+      <section class="weekly-panel">
+        <h2>🌊 新兴信号</h2>
+        {% for item in report.emerging_signals or [] %}
+          <article class="weekly-item">
+            <h3>{{ item.signal }}</h3>
+            <p><strong>新增程度：</strong>{{ item.newness }}</p>
+            <p>{{ item.evidence }}</p>
+            <p><strong>投资含义：</strong>{{ item.investor_implication }}</p>
+            <p class="inline-citations">{% for number in item.citation_numbers %}[{{ number }}] {% endfor %}</p>
+          </article>
+        {% else %}<p class="muted-copy">相较此前 30 天，暂未识别到明确的新兴信号。</p>{% endfor %}
+      </section>
+
+      <section class="weekly-panel">
+        <h2>💡 非共识洞察</h2>
+        {% for item in report.contrarian_insights or [] %}
+          <article class="weekly-item">
+            <h3>{{ item.insight }}</h3>
+            <p><strong>为什么不显而易见：</strong>{{ item.why_non_obvious }}</p>
+            <p><strong>值得追问：</strong>{{ item.investment_question }}</p>
+            <p class="inline-citations">{% for number in item.citation_numbers %}[{{ number }}] {% endfor %}</p>
+          </article>
+        {% else %}<p class="muted-copy">本周暂无证据充分的非共识洞察。</p>{% endfor %}
+      </section>
+    </div>
+
+    <section class="investor-takeaway">
+      <p class="eyebrow">给投资人的结论</p>
+      <h2>🔭 本周投资启示</h2>
+      {% for item in report.investor_takeaway or [] %}
+        <p class="takeaway-summary">{{ item.summary }}</p>
+        {% if item.actions %}<ul>{% for action in item.actions %}<li>{{ action }}</li>{% endfor %}</ul>{% endif %}
+        <p class="inline-citations">{% for number in item.citation_numbers %}[{{ number }}] {% endfor %}</p>
+      {% else %}<p class="muted-copy">本周暂无足够证据形成投资启示。</p>{% endfor %}
+    </section>
+
     <div class="weekly-grid">
       <section class="weekly-panel">
         <h2>📈 升温话题</h2>
         {% for item in report.rising_topics %}
           <article class="weekly-item">
-            <div class="weekly-item-head"><h3>{{ item.topic }}</h3><span class="momentum momentum-{{ item.momentum }}">{{ item.momentum }}</span></div>
+            <div class="weekly-item-head"><h3>{{ item.topic }}</h3><span class="momentum momentum-{{ item.momentum }}">{% if item.momentum == "high" %}高{% elif item.momentum == "medium" %}中{% else %}{{ item.momentum }}{% endif %}</span></div>
             <p>{{ item.evidence }}</p>
             <p class="inline-citations">{% for number in item.citation_numbers %}[{{ number }}] {% endfor %}</p>
           </article>
@@ -114,7 +182,7 @@
   </script>
 {% else %}
   <section class="weekly-empty">
-    <p class="eyebrow">Weekly market intelligence</p>
+    <p class="eyebrow">周度投资情报</p>
     <h1>周度市场报告尚未生成</h1>
     <p>worker 会在每周一自动生成上一完整自然周的综合市场报告。</p>
   </section>

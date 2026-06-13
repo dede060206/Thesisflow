@@ -648,6 +648,31 @@ def list_articles_for_weekly_report(
         ).fetchall()
 
 
+def list_articles_for_weekly_baseline(
+    baseline_start: str, baseline_end: str, limit: int = 300
+) -> list[dict[str, Any]]:
+    with get_connection() as conn:
+        return conn.execute(
+            """
+            SELECT *
+            FROM articles
+            WHERE DATE(COALESCE(published_at, fetched_at)) >= %(baseline_start)s
+              AND DATE(COALESCE(published_at, fetched_at)) <= %(baseline_end)s
+              AND """
+            + ELIGIBLE_ARTICLE_SQL
+            + """
+            ORDER BY quality_score DESC, source_tier DESC,
+                     COALESCE(published_at, fetched_at) DESC
+            LIMIT %(limit)s
+            """,
+            query_params(
+                baseline_start=baseline_start,
+                baseline_end=baseline_end,
+                limit=limit,
+            ),
+        ).fetchall()
+
+
 def get_weekly_market_report(week_start: str) -> dict[str, Any] | None:
     with get_connection() as conn:
         return conn.execute(

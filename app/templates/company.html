@@ -1,0 +1,180 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="company-shell">
+  <header class="chat-head company-head">
+    <p class="eyebrow">公司研究 V1</p>
+    <h1>生成一份投资人视角的公司报告</h1>
+    <p>结合 Thesisflow 信号、已收录文章和外部网页资料，快速形成结构化研究底稿。</p>
+  </header>
+
+  <form class="company-form" id="company-form">
+    <label for="company-name">公司名称</label>
+    <div class="company-search-row">
+      <input id="company-name" name="company_name" maxlength="200" placeholder="例如：Anthropic" required>
+      <button type="submit">生成公司报告</button>
+    </div>
+    <p>外部信息可能随时间变化，请通过报告底部来源进行核验。</p>
+  </form>
+
+  <section class="company-result" id="company-result" hidden aria-live="polite">
+    <div id="company-status"></div>
+    <div id="company-report" hidden>
+      <header class="company-report-head">
+        <div>
+          <p class="eyebrow">投资研究报告</p>
+          <h2 id="company-report-title"></h2>
+          <p id="company-report-subtitle"></p>
+        </div>
+        <button class="save-research-button" id="save-company" type="button">保存到 Thesis Builder</button>
+      </header>
+
+      <div class="company-report-grid" id="company-report-grid"></div>
+
+      <section class="citation-section" id="company-article-section" hidden>
+        <h2>相关文章</h2>
+        <div class="citation-list" id="company-articles"></div>
+      </section>
+      <section class="citation-section" id="company-signal-section" hidden>
+        <h2>信号来源</h2>
+        <div class="citation-list" id="company-signal-sources"></div>
+      </section>
+      <section class="citation-section" id="company-web-section" hidden>
+        <h2>外部来源</h2>
+        <div class="citation-list" id="company-web-sources"></div>
+      </section>
+    </div>
+  </section>
+</section>
+
+<script>
+  const companyForm = document.getElementById("company-form");
+  const companyButton = companyForm.querySelector("button");
+  const companyResult = document.getElementById("company-result");
+  const companyStatus = document.getElementById("company-status");
+  const companyReport = document.getElementById("company-report");
+  const reportGrid = document.getElementById("company-report-grid");
+  const saveCompany = document.getElementById("save-company");
+  let latestCompanyResearch = null;
+
+  const sectionLabels = {
+    what_they_do: "公司业务",
+    problem_solved: "解决的问题",
+    market: "市场空间",
+    business_model: "商业模式",
+    funding_history: "融资历史",
+    competitive_landscape: "竞争格局",
+    bull_case: "看多逻辑",
+    bear_case: "看空逻辑",
+    open_questions: "待验证问题",
+    related_signals: "相关信号"
+  };
+
+  function escapeHtml(value) {
+    const node = document.createElement("div");
+    node.textContent = value == null ? "" : String(value);
+    return node.innerHTML;
+  }
+
+  function humanizeKey(key) {
+    const labels = {
+      description: "市场描述", size_or_scope: "市场规模或范围", drivers: "驱动因素",
+      customers: "客户", pricing_or_revenue_model: "定价与收入模式", go_to_market: "获客方式",
+      date: "时间", round: "轮次", amount: "金额", investors: "投资方", notes: "备注",
+      competitors: "竞争对手", differentiation: "差异化", risks: "竞争风险",
+      title: "信号", summary: "摘要", citation_numbers: "相关引用"
+    };
+    return labels[key] || key;
+  }
+
+  function renderValue(value) {
+    if (value == null || value === "" || (Array.isArray(value) && !value.length)) {
+      return '<p class="muted-copy">暂无足够公开信息。</p>';
+    }
+    if (Array.isArray(value)) {
+      if (value.every((item) => typeof item !== "object")) {
+        return `<ul>${value.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>`;
+      }
+      return `<div class="company-subitems">${value.map((item) => `<div class="company-subitem">${renderValue(item)}</div>`).join("")}</div>`;
+    }
+    if (typeof value === "object") {
+      return Object.entries(value)
+        .filter(([, item]) => item !== "" && item != null && (!Array.isArray(item) || item.length))
+        .map(([key, item]) => `<div class="company-field"><strong>${escapeHtml(humanizeKey(key))}</strong>${renderValue(item)}</div>`)
+        .join("") || '<p class="muted-copy">暂无足够公开信息。</p>';
+    }
+    return `<p>${escapeHtml(value)}</p>`;
+  }
+
+  function sourceCards(items, external = false) {
+    return (items || []).map((item, index) => `
+      <a class="citation-card" href="${escapeHtml(item.url)}" target="_blank" rel="noreferrer">
+        <span class="citation-number">${external ? "W" : "T"}${index + 1}</span>
+        <span class="citation-copy"><strong>${escapeHtml(item.title)}</strong>
+          <small>${escapeHtml(item.source || item.published_at || "外部网页")}</small>
+        </span>
+      </a>`).join("");
+  }
+
+  companyForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const companyName = document.getElementById("company-name").value.trim();
+    if (!companyName) return;
+    companyButton.disabled = true;
+    companyButton.textContent = "研究中...";
+    companyResult.hidden = false;
+    companyReport.hidden = true;
+    companyStatus.innerHTML = '<p class="chat-status">正在检索 Thesisflow 与外部网页资料，这通常需要几十秒...</p>';
+
+    try {
+      const response = await fetch("/api/company-research", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({company_name: companyName})
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.detail || "研究请求失败");
+      latestCompanyResearch = data;
+      const snapshot = data.report.company_snapshot || {};
+      document.getElementById("company-report-title").textContent = snapshot.name || data.company;
+      document.getElementById("company-report-subtitle").textContent = snapshot.one_liner || "";
+      reportGrid.innerHTML = Object.entries(sectionLabels).map(([key, label]) => `
+        <section class="company-report-card ${key === "funding_history" || key === "competitive_landscape" ? "wide" : ""}">
+          <h3>${label}</h3>${renderValue(data.report[key])}
+        </section>`).join("");
+
+      const articleSection = document.getElementById("company-article-section");
+      document.getElementById("company-articles").innerHTML = sourceCards(data.related_articles);
+      articleSection.hidden = !data.related_articles.length;
+      const signalSection = document.getElementById("company-signal-section");
+      document.getElementById("company-signal-sources").innerHTML = sourceCards(data.weekly_signal_sources);
+      signalSection.hidden = !data.weekly_signal_sources.length;
+      const webSection = document.getElementById("company-web-section");
+      document.getElementById("company-web-sources").innerHTML = sourceCards(data.external_sources, true);
+      webSection.hidden = !data.external_sources.length;
+      companyStatus.innerHTML = "";
+      companyReport.hidden = false;
+    } catch (error) {
+      companyStatus.innerHTML = `<p class="chat-error">${escapeHtml(error.message)}</p>`;
+    } finally {
+      companyButton.disabled = false;
+      companyButton.textContent = "生成公司报告";
+    }
+  });
+
+  saveCompany.addEventListener("click", () => {
+    if (!latestCompanyResearch) return;
+    const articleIds = latestCompanyResearch.related_articles.map((item) => item.article_id).filter(Boolean);
+    ThesisflowSaveEvidence({
+      evidence_type: "company_research",
+      title: `公司研究：${latestCompanyResearch.company}`,
+      excerpt: JSON.stringify(latestCompanyResearch.report, null, 2).slice(0, 12000),
+      source: "Thesisflow Company Research",
+      article_ids: articleIds.slice(0, 10),
+      metadata: {
+        company: latestCompanyResearch.company,
+        external_sources: latestCompanyResearch.external_sources.slice(0, 8)
+      }
+    });
+  });
+</script>
+{% endblock %}

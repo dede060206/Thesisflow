@@ -186,7 +186,13 @@ def api_import_evidence(
 ) -> dict:
     workspace_id, _ = workspace_for_request(request)
     owned_thesis_or_404(thesis_id, workspace_id)
-    if payload.evidence_type not in {"chat", "comparison", "weekly_signal", "manual"}:
+    if payload.evidence_type not in {
+        "chat",
+        "comparison",
+        "weekly_signal",
+        "company_research",
+        "manual",
+    }:
         raise HTTPException(status_code=400, detail="Unsupported evidence type.")
     if len(json.dumps(payload.metadata)) > 5000:
         raise HTTPException(status_code=400, detail="Evidence metadata is too large.")
