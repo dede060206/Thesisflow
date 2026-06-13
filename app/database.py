@@ -25,6 +25,18 @@ ELIGIBLE_ARTICLE_SQL = (
 )
 
 
+def eligible_article_sql(alias: str | None = None) -> str:
+    if not alias:
+        return ELIGIBLE_ARTICLE_SQL
+    prefix = f"{alias}."
+    return (
+        f"{prefix}page_type = 'ARTICLE' AND {prefix}skip_reason IS NULL "
+        f"AND COALESCE({prefix}quality_score, 0) >= %(quality_score_threshold)s "
+        f"AND DATE(COALESCE({prefix}published_at, {prefix}fetched_at)) "
+        ">= %(min_article_date)s"
+    )
+
+
 def get_connection() -> psycopg.Connection:
     if not DATABASE_URL:
         raise RuntimeError("DATABASE_URL is required for Postgres storage.")
@@ -382,13 +394,7 @@ def list_articles_for_indexing(limit: int = 100) -> list[dict[str, Any]]:
             LEFT JOIN article_chunks c ON c.article_id = a.id
             WHERE COALESCE(a.content, '') <> ''
               AND """
-            + ELIGIBLE_ARTICLE_SQL.replace("source", "a.source").replace(
-                "word_count", "a.word_count"
-            ).replace("published_at", "a.published_at").replace(
-                "fetched_at", "a.fetched_at"
-            ).replace("quality_score", "a.quality_score").replace(
-                "page_type", "a.page_type"
-            ).replace("skip_reason", "a.skip_reason")
+            + eligible_article_sql("a")
             + """
             GROUP BY a.id
             HAVING COUNT(c.id) = 0 OR COUNT(c.embedding) = 0
@@ -456,13 +462,7 @@ def search_article_chunks_vector(
             JOIN articles a ON a.id = c.article_id
             WHERE c.embedding IS NOT NULL
               AND """
-            + ELIGIBLE_ARTICLE_SQL.replace("source", "a.source").replace(
-                "word_count", "a.word_count"
-            ).replace("published_at", "a.published_at").replace(
-                "fetched_at", "a.fetched_at"
-            ).replace("quality_score", "a.quality_score").replace(
-                "page_type", "a.page_type"
-            ).replace("skip_reason", "a.skip_reason")
+            + eligible_article_sql("a")
             + source_clause
             + """
             ORDER BY c.embedding <=> %(embedding)s::vector
@@ -498,13 +498,7 @@ def search_article_chunks_text(
             WHERE to_tsvector('english', c.content)
                   @@ websearch_to_tsquery('english', %(query)s)
               AND """
-            + ELIGIBLE_ARTICLE_SQL.replace("source", "a.source").replace(
-                "word_count", "a.word_count"
-            ).replace("published_at", "a.published_at").replace(
-                "fetched_at", "a.fetched_at"
-            ).replace("quality_score", "a.quality_score").replace(
-                "page_type", "a.page_type"
-            ).replace("skip_reason", "a.skip_reason")
+            + eligible_article_sql("a")
             + source_clause
             + """
             ORDER BY score DESC
